@@ -1,0 +1,285 @@
+{
+  "primary_result": {
+    "baseline": {
+      "system": "baseline",
+      "trials": 45,
+      "successes": 32,
+      "success_rate": 0.7111,
+      "wilson_ci95": [
+        0.5663,
+        0.8227
+      ],
+      "wall_time_total_s": 3.5,
+      "wall_time_mean_s": 0.0778,
+      "verification_calls_total": 45,
+      "candidates_total": 45,
+      "nodes_expanded_total": 45,
+      "pruned_total": 0,
+      "duplicates_total": 0,
+      "backtracks_total": 0,
+      "stagnation_events_total": 0,
+      "token_estimate_total": 0,
+      "verifications_per_success": 1.406,
+      "wall_time_per_success_s": 0.1094
+    },
+    "forgemind": {
+      "system": "forgemind",
+      "trials": 45,
+      "successes": 45,
+      "success_rate": 1.0,
+      "wilson_ci95": [
+        0.9213,
+        1.0
+      ],
+      "wall_time_total_s": 5.751,
+      "wall_time_mean_s": 0.1278,
+      "verification_calls_total": 70,
+      "candidates_total": 66,
+      "nodes_expanded_total": 45,
+      "pruned_total": 0,
+      "duplicates_total": 0,
+      "backtracks_total": 0,
+      "stagnation_events_total": 0,
+      "token_estimate_total": 810,
+      "verifications_per_success": 1.556,
+      "wall_time_per_success_s": 0.1278
+    },
+    "delta_success": 0.2889,
+    "paired_bootstrap": {
+      "n_pairs": 45,
+      "delta_point": 0.28888888888888886,
+      "ci95_lo": 0.15555555555555556,
+      "ci95_hi": 0.4222222222222223,
+      "method": "paired bootstrap over task/trial units, 10000 resamples"
+    },
+    "mcnemar_exact": {
+      "n01": 13,
+      "n10": 0,
+      "discordant_advantage": 13,
+      "p_value": 0.000244140625,
+      "test": "McNemar exact (two-sided)"
+    }
+  },
+  "by_difficulty": [
+    {
+      "difficulty": 1,
+      "baseline_success_rate": 0.8,
+      "baseline_trials": 10,
+      "forgemind_success_rate": 1.0,
+      "forgemind_trials": 10,
+      "delta": 0.2
+    },
+    {
+      "difficulty": 2,
+      "baseline_success_rate": 0.7333,
+      "baseline_trials": 15,
+      "forgemind_success_rate": 1.0,
+      "forgemind_trials": 15,
+      "delta": 0.2667
+    },
+    {
+      "difficulty": 3,
+      "baseline_success_rate": 0.6,
+      "baseline_trials": 15,
+      "forgemind_success_rate": 1.0,
+      "forgemind_trials": 15,
+      "delta": 0.4
+    },
+    {
+      "difficulty": 4,
+      "baseline_success_rate": 0.8,
+      "baseline_trials": 5,
+      "forgemind_success_rate": 1.0,
+      "forgemind_trials": 5,
+      "delta": 0.2
+    }
+  ],
+  "failure_taxonomy": {
+    "baseline": {
+      "TEST_FAILURE": 13
+    },
+    "forgemind": {
+      "TEST_FAILURE": 21
+    },
+    "abl_baseline": {
+      "TEST_FAILURE": 24
+    },
+    "abl_iterative": {
+      "TEST_FAILURE": 52
+    },
+    "abl_beam": {
+      "TEST_FAILURE": 28
+    },
+    "abl_beam_backtrack": {
+      "TEST_FAILURE": 28
+    },
+    "abl_full": {
+      "TEST_FAILURE": 28
+    }
+  },
+  "recovery_analysis": {
+    "baseline_failures_recovered_by_forgemind": 13,
+    "baseline_successes_lost_by_forgemind": 0,
+    "recovery_examples_or_counterexamples": [
+      {
+        "task": "L1A_reverse_string",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 1,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L1B_palindrome_number",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 1,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L2A_binary_search",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L2B_fibonacci",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L2B_fibonacci",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L2C_roman_numerals",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 1,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3A_bank_account",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3A_bank_account",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3B_lru_cache",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3B_lru_cache",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3C_min_stack",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3C_min_stack",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L4A_csv_module",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 1,
+        "extra_backtracks": 0,
+        "recovered": true
+      }
+    ],
+    "net_recovery_advantage": 13
+  },
+  "search_efficiency_forgemind": {
+    "branching_factor_observed": 1.467,
+    "pruning_rate": 0.0,
+    "duplicate_rate": 0.0,
+    "acceptance_efficiency": 0.682,
+    "verification_efficiency": 0.643,
+    "denominators": {
+      "candidates": 66,
+      "expanded_nodes": 45,
+      "pruned": 0,
+      "duplicates": 0,
+      "wins": 45,
+      "verifications": 70
+    }
+  }
+}

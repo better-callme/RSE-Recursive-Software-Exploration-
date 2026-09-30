@@ -1,0 +1,100 @@
+{
+  "table": [
+    {
+      "variant": "baseline",
+      "trials": 27,
+      "success_rate": 0.1111,
+      "wilson_ci95": [
+        0.0385,
+        0.2806
+      ],
+      "mean_wall_time_s": 0.0809,
+      "verification_calls_total": 27,
+      "backtracks_total": 0,
+      "nodes_expanded_total": 27,
+      "token_estimate_total": 0
+    },
+    {
+      "variant": "iterative",
+      "trials": 27,
+      "success_rate": 0.8519,
+      "wilson_ci95": [
+        0.6752,
+        0.9408
+      ],
+      "mean_wall_time_s": 0.2223,
+      "verification_calls_total": 75,
+      "backtracks_total": 0,
+      "nodes_expanded_total": 27,
+      "token_estimate_total": 0
+    },
+    {
+      "variant": "beam",
+      "trials": 27,
+      "success_rate": 1.0,
+      "wilson_ci95": [
+        0.8754,
+        1.0
+      ],
+      "mean_wall_time_s": 0.1617,
+      "verification_calls_total": 55,
+      "backtracks_total": 0,
+      "nodes_expanded_total": 27,
+      "token_estimate_total": 486
+    },
+    {
+      "variant": "beam_backtrack",
+      "trials": 27,
+      "success_rate": 1.0,
+      "wilson_ci95": [
+        0.8754,
+        1.0
+      ],
+      "mean_wall_time_s": 0.1725,
+      "verification_calls_total": 58,
+      "backtracks_total": 0,
+      "nodes_expanded_total": 27,
+      "token_estimate_total": 486
+    },
+    {
+      "variant": "full",
+      "trials": 27,
+      "success_rate": 1.0,
+      "wilson_ci95": [
+        0.8754,
+        1.0
+      ],
+      "mean_wall_time_s": 0.1682,
+      "verification_calls_total": 58,
+      "backtracks_total": 0,
+      "nodes_expanded_total": 27,
+      "token_estimate_total": 486
+    }
+  ],
+  "incremental": [
+    {
+      "step": "baseline -> iterative",
+      "delta_success": 0.7408,
+      "delta_wall_time_s": 0.1414,
+      "delta_verifications": 48
+    },
+    {
+      "step": "iterative -> beam",
+      "delta_success": 0.1481,
+      "delta_wall_time_s": -0.0606,
+      "delta_verifications": -20
+    },
+    {
+      "step": "beam -> beam_backtrack",
+      "delta_success": 0.0,
+      "delta_wall_time_s": 0.0108,
+      "delta_verifications": 3
+    },
+    {
+      "step": "beam_backtrack -> full",
+      "delta_success": 0.0,
+      "delta_wall_time_s": -0.0043,
+      "delta_verifications": 0
+    }
+  ]
+}

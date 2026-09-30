@@ -1,0 +1,36 @@
+{
+  "config": {
+    "ablation_trials": 3,
+    "beam_width": 3,
+    "benchmark_version": "task-ladder-1.0.0",
+    "branching_factor": 3,
+    "experiment_id": "experiment_v1",
+    "forgemind_version": "0.1.0",
+    "hard_limits": {
+      "max_tasks": 16,
+      "max_trials_total": 600,
+      "max_wall_time_seconds": 3600
+    },
+    "iterative_max_repairs": 2,
+    "max_agent_calls": 120,
+    "max_depth": 4,
+    "max_nodes": 60,
+    "max_tokens": null,
+    "max_verifications": 40,
+    "model": "mock://candidate-pool-v1",
+    "n_trials": 5,
+    "platform": "Linux-6.18.12+kali-amd64-x86_64-with-glibc2.42",
+    "provider": "deterministic-simulation",
+    "python_version": "3.13.14",
+    "random_seed_base": 20260822,
+    "resources": {
+      "cpu_limit_seconds": 8,
+      "max_output_bytes": 1000000,
+      "memory_limit_mb": 512,
+      "process_limit": 64,
+      "wall_timeout_seconds": 10.0
+    },
+    "temperature": null
+  },
+  "config_hash": "becdb36d32785158c62b68fc83caa4973473bb5aad598425a772d4223aed0057"
+}

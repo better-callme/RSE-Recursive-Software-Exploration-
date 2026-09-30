@@ -1,0 +1,175 @@
+{
+  "taxonomy": {
+    "baseline": {
+      "TEST_FAILURE": 13
+    },
+    "forgemind": {
+      "TEST_FAILURE": 21
+    },
+    "abl_baseline": {
+      "TEST_FAILURE": 24
+    },
+    "abl_iterative": {
+      "TEST_FAILURE": 52
+    },
+    "abl_beam": {
+      "TEST_FAILURE": 28
+    },
+    "abl_beam_backtrack": {
+      "TEST_FAILURE": 28
+    },
+    "abl_full": {
+      "TEST_FAILURE": 28
+    }
+  },
+  "recovery": {
+    "baseline_failures_recovered_by_forgemind": 13,
+    "baseline_successes_lost_by_forgemind": 0,
+    "recovery_examples_or_counterexamples": [
+      {
+        "task": "L1A_reverse_string",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 1,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L1B_palindrome_number",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 1,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L2A_binary_search",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L2B_fibonacci",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L2B_fibonacci",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L2C_roman_numerals",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 1,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3A_bank_account",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3A_bank_account",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3B_lru_cache",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3B_lru_cache",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3C_min_stack",
+        "trial": 0,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L3C_min_stack",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 2,
+        "extra_backtracks": 0,
+        "recovered": true
+      },
+      {
+        "task": "L4A_csv_module",
+        "trial": 2,
+        "baseline_failure_categories": [
+          "TEST_FAILURE"
+        ],
+        "forgemind_termination": "GOAL_ACCEPTED",
+        "extra_verifications": 1,
+        "extra_backtracks": 0,
+        "recovered": true
+      }
+    ],
+    "net_recovery_advantage": 13
+  }
+}
