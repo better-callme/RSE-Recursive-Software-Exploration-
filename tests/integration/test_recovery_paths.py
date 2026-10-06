@@ -217,5 +217,7 @@ def test_stagnation_backtrack_prunes_frontier_and_resets_branch(spec):
     assert engine.metrics.stagnation_events == 1
     assert engine.metrics.backtracks == 1
     assert engine.metrics.pruned >= 1
-    assert len(engine.frontier) == 0
+    assert len(engine.frontier) == 1
+    assert engine.frontier.peek_best() is not None
+    assert engine.frontier.peek_best().node_id == c1.node_id
     assert engine.history.of_type(EventType.BACKTRACK)
