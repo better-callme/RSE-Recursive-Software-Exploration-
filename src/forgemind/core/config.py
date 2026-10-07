@@ -30,6 +30,46 @@ class ResourceLimits:
     max_output_bytes: int = 1_000_000
 
 
+@dataclasses.dataclass(frozen=True)
+class LLMRoleModels:
+    architect: str = "gpt-4.1-mini"
+    builder: str = "gpt-4.1-mini"
+    critic: str = "gpt-4.1-mini"
+    optimizer: str = "gpt-4.1-mini"
+
+
+@dataclasses.dataclass(frozen=True)
+class LLMConfig:
+    # integration_mode: "mock" keeps deterministic local mocks;
+    # "live" activates runtime provider-backed adapters.
+    integration_mode: str = "mock"
+    provider: str = "openai_compatible"
+    endpoint: str = ""
+    api_key_env_var: str = "GITHUB_TOKEN"
+    roles: LLMRoleModels = field(default_factory=LLMRoleModels)
+    request_timeout_seconds: float = 25.0
+    max_retries: int = 2
+    retry_backoff_seconds: float = 0.5
+    max_output_chars: int = 16_000
+    max_prompt_chars: int = 24_000
+    temperature: float = 0.2
+    top_p: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.integration_mode not in {"mock", "live"}:
+            raise ValueError("llm.integration_mode must be 'mock' or 'live'")
+        if self.provider not in {"openai_compatible"}:
+            raise ValueError("llm.provider must be 'openai_compatible'")
+        if self.max_retries < 0:
+            raise ValueError("llm.max_retries must be >= 0")
+        if self.request_timeout_seconds <= 0:
+            raise ValueError("llm.request_timeout_seconds must be > 0")
+        if self.max_output_chars < 512:
+            raise ValueError("llm.max_output_chars must be >= 512")
+        if self.max_prompt_chars < 1024:
+            raise ValueError("llm.max_prompt_chars must be >= 1024")
+
+
 @dataclass(frozen=True)
 class ForgeMindConfig:
     """Immutable engine configuration."""
@@ -64,6 +104,7 @@ class ForgeMindConfig:
     reverify_duplicates: bool = False  # explicit opt-in for redundant verification
 
     logging_verbose: bool = False
+    llm: LLMConfig = field(default_factory=LLMConfig)
 
     def __post_init__(self) -> None:
         if self.beam_width < 1:

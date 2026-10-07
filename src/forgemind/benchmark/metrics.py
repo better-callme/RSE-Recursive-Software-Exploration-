@@ -31,6 +31,10 @@ class RunRecord:
     stagnation_events: int
     max_depth: int
     token_estimate: int
+    llm_input_tokens: int
+    llm_output_tokens: int
+    llm_parse_failures: int
+    llm_retry_attempts: int
     termination_reason: str
     extra: Mapping[str, Any] = field(default_factory=dict)
 
@@ -114,6 +118,10 @@ def record_from_search(problem_id: str, result: SearchResult) -> RunRecord:
         stagnation_events=m.stagnation_events,
         max_depth=m.max_depth_reached,
         token_estimate=m.token_estimate,
+        llm_input_tokens=m.llm_input_tokens,
+        llm_output_tokens=m.llm_output_tokens,
+        llm_parse_failures=m.llm_parse_failures,
+        llm_retry_attempts=m.llm_retry_attempts,
         termination_reason=result.termination.reason,
     )
 

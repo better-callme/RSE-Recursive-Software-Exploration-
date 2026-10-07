@@ -72,6 +72,10 @@ class ExperimentRunner:
                 stagnation_events=0,
                 max_depth=1,
                 token_estimate=0,
+                llm_input_tokens=0,
+                llm_output_tokens=0,
+                llm_parse_failures=0,
+                llm_retry_attempts=0,
                 termination_reason=outcome.termination.reason,
             ))
         return BenchmarkResult(records=tuple(records))
