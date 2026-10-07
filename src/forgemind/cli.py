@@ -12,7 +12,7 @@ import sys
 
 from forgemind.benchmark.experiment import ExperimentRunner
 from forgemind.benchmark.problems.stats_problem import StatsProblem
-from forgemind.core.config import ForgeMindConfig
+from forgemind.core.config import ForgeMindConfig, LLMConfig, LLMRoleModels
 
 
 _PROBLEMS = {
@@ -44,15 +44,37 @@ def build_parser() -> argparse.ArgumentParser:
 
     trace_p = sub.add_parser("trace", help="print the event log of a run")
     trace_p.add_argument("--problem", choices=sorted(_PROBLEMS), default="stats")
+
+    for p in (run_p, trace_p, bench_p):
+        p.add_argument("--agent-mode", choices=("mock", "live"), default="mock")
+        p.add_argument("--llm-endpoint", default="")
+        p.add_argument("--llm-api-key-env", default="GITHUB_TOKEN")
+        p.add_argument("--llm-model", default="gpt-4.1-mini")
+        p.add_argument("--llm-timeout", type=float, default=25.0)
+        p.add_argument("--llm-retries", type=int, default=2)
     return parser
 
 
 def _engine_for(args) -> tuple:
     spec = _problem_spec(args.problem)
+    llm_cfg = LLMConfig(
+        integration_mode=getattr(args, "agent_mode", "mock"),
+        endpoint=getattr(args, "llm_endpoint", ""),
+        api_key_env_var=getattr(args, "llm_api_key_env", "GITHUB_TOKEN"),
+        request_timeout_seconds=getattr(args, "llm_timeout", 25.0),
+        max_retries=getattr(args, "llm_retries", 2),
+        roles=LLMRoleModels(
+            architect=getattr(args, "llm_model", "gpt-4.1-mini"),
+            builder=getattr(args, "llm_model", "gpt-4.1-mini"),
+            critic=getattr(args, "llm_model", "gpt-4.1-mini"),
+            optimizer=getattr(args, "llm_model", "gpt-4.1-mini"),
+        ),
+    )
     config = ForgeMindConfig(
         random_seed=args.seed,
         beam_width=getattr(args, "beam_width", 3),
         max_depth=getattr(args, "max_depth", 6),
+        llm=llm_cfg,
     )
     runner = ExperimentRunner(config)
     from forgemind.search.engine import SearchEngine
@@ -88,7 +110,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.success else 1
 
     if args.command == "benchmark":
-        runner = ExperimentRunner(ForgeMindConfig(random_seed=args.seed))
+        llm_cfg = LLMConfig(
+            integration_mode=getattr(args, "agent_mode", "mock"),
+            endpoint=getattr(args, "llm_endpoint", ""),
+            api_key_env_var=getattr(args, "llm_api_key_env", "GITHUB_TOKEN"),
+            request_timeout_seconds=getattr(args, "llm_timeout", 25.0),
+            max_retries=getattr(args, "llm_retries", 2),
+            roles=LLMRoleModels(
+                architect=getattr(args, "llm_model", "gpt-4.1-mini"),
+                builder=getattr(args, "llm_model", "gpt-4.1-mini"),
+                critic=getattr(args, "llm_model", "gpt-4.1-mini"),
+                optimizer=getattr(args, "llm_model", "gpt-4.1-mini"),
+            ),
+        )
+        runner = ExperimentRunner(ForgeMindConfig(random_seed=args.seed, llm=llm_cfg))
         print("running baseline ...")
         baseline = runner.run_baseline([spec])
         print("running forgemind ...")

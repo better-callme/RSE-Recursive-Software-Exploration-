@@ -21,6 +21,7 @@ from forgemind.agents.mocks import (
     MockCritic,
     MockOptimizer,
 )
+from forgemind.agents.llm import build_live_agents
 from forgemind.core.config import ForgeMindConfig
 from forgemind.core.history import EventType, History
 from forgemind.core.problem import ProblemSpec
@@ -67,6 +68,10 @@ class SearchMetrics:
     stagnation_events: int = 0
     max_depth_reached: int = 0
     token_estimate: int = 0
+    llm_input_tokens: int = 0
+    llm_output_tokens: int = 0
+    llm_parse_failures: int = 0
+    llm_retry_attempts: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return dict(vars(self))
@@ -88,10 +93,18 @@ class SearchEngine:
     ) -> None:
         self.spec = spec
         self.config = config or ForgeMindConfig()
-        self.architect = architect or MockArchitect()
-        self.builder = builder or MockBuilder()
-        self.critic = critic or MockCritic()
-        self.optimizer = optimizer or MockOptimizer()
+        use_live = self.config.llm.integration_mode == "live"
+        if use_live:
+            live_agents = build_live_agents(self.config.llm)
+            self.architect = architect or live_agents["architect"]
+            self.builder = builder or live_agents["builder"]
+            self.critic = critic or live_agents["critic"]
+            self.optimizer = optimizer or live_agents["optimizer"]
+        else:
+            self.architect = architect or MockArchitect()
+            self.builder = builder or MockBuilder()
+            self.critic = critic or MockCritic()
+            self.optimizer = optimizer or MockOptimizer()
         self.referee = referee or Referee(spec, _default_env(), self.config)
         self.recovery = recovery or RecoveryPolicy()
         self.history = history or History()
@@ -550,7 +563,22 @@ class SearchEngine:
         self.metrics.agent_calls += 1
         ctx = {"source_node_id": source_node_id}
         proposals = agent.propose(projection, ctx)
-        self.history.append(EventType.AGENT_CALLED, role=getattr(agent, "role", "?"))
+        call_meta = dict(getattr(agent, "last_call_metadata", {}) or {})
+        self.metrics.llm_input_tokens += int(call_meta.get("usage_input_tokens", 0) or 0)
+        self.metrics.llm_output_tokens += int(call_meta.get("usage_output_tokens", 0) or 0)
+        self.metrics.llm_parse_failures += int(call_meta.get("parse_failures", 0) or 0)
+        self.metrics.llm_retry_attempts += int(call_meta.get("retries", 0) or 0)
+        self.history.append(EventType.AGENT_CALLED, role=getattr(agent, "role", "?"),
+                            **call_meta)
+        if not proposals and getattr(agent, "last_error", ""):
+            rec = self.recovery.record(
+                state_hash=self.graph.get(source_node_id).state.content_hash,
+                candidate_id="",
+                failure_type=FailureType.INTERNAL_ERROR,
+                stage="agent",
+                evidence=f"{getattr(agent, 'role', '?')}: {agent.last_error}",
+            )
+            self._record_failure(self.graph.get(source_node_id), rec)
         for p in proposals:
             self.history.append(EventType.PROPOSAL_GENERATED,
                                 kind=type(p).__name__, agent=getattr(agent, "role", "?"),
@@ -563,7 +591,22 @@ class SearchEngine:
         self.metrics.agent_calls += 1
         ctx = {"source_node_id": source_node_id}
         critiques, attacks = agent.propose(projection, ctx)
-        self.history.append(EventType.AGENT_CALLED, role=getattr(agent, "role", "?"))
+        call_meta = dict(getattr(agent, "last_call_metadata", {}) or {})
+        self.metrics.llm_input_tokens += int(call_meta.get("usage_input_tokens", 0) or 0)
+        self.metrics.llm_output_tokens += int(call_meta.get("usage_output_tokens", 0) or 0)
+        self.metrics.llm_parse_failures += int(call_meta.get("parse_failures", 0) or 0)
+        self.metrics.llm_retry_attempts += int(call_meta.get("retries", 0) or 0)
+        self.history.append(EventType.AGENT_CALLED, role=getattr(agent, "role", "?"),
+                            **call_meta)
+        if not critiques and not attacks and getattr(agent, "last_error", ""):
+            rec = self.recovery.record(
+                state_hash=self.graph.get(source_node_id).state.content_hash,
+                candidate_id="",
+                failure_type=FailureType.INTERNAL_ERROR,
+                stage="agent",
+                evidence=f"{getattr(agent, 'role', '?')}: {agent.last_error}",
+            )
+            self._record_failure(self.graph.get(source_node_id), rec)
         return critiques, attacks
 
 
