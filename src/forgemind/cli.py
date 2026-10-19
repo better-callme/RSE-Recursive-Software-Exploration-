@@ -15,13 +15,15 @@ from forgemind.benchmark.problems.stats_problem import StatsProblem
 from forgemind.core.config import ForgeMindConfig
 
 
-_PROBLEMS = {
+#: Registry of bundled benchmark problems, keyed by CLI/API problem id.
+PROBLEMS = {
     "stats": lambda: StatsProblem(),
 }
 
 
-def _problem_spec(name: str) -> ProblemSpec:
-    problem = _PROBLEMS[name]()
+def problem_spec(name: str) -> ProblemSpec:
+    """Build the ProblemSpec for a registered problem id (KeyError if unknown)."""
+    problem = PROBLEMS[name]()
     spec = problem.spec
     if hasattr(problem, "test_files"):
         object.__setattr__(spec, "_test_provider_ref", problem.test_files)
@@ -34,21 +36,25 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_p = sub.add_parser("run", help="run ForgeMind search on one problem")
-    run_p.add_argument("--problem", choices=sorted(_PROBLEMS), default="stats")
+    run_p.add_argument("--problem", choices=sorted(PROBLEMS), default="stats")
     run_p.add_argument("--beam-width", type=int, default=3)
     run_p.add_argument("--max-depth", type=int, default=6)
 
     bench_p = sub.add_parser("benchmark", help="compare ForgeMind vs baseline")
-    bench_p.add_argument("--problem", choices=sorted(_PROBLEMS), default="stats")
+    bench_p.add_argument("--problem", choices=sorted(PROBLEMS), default="stats")
     bench_p.add_argument("--output", default="forgemind_report.json")
 
     trace_p = sub.add_parser("trace", help="print the event log of a run")
-    trace_p.add_argument("--problem", choices=sorted(_PROBLEMS), default="stats")
+    trace_p.add_argument("--problem", choices=sorted(PROBLEMS), default="stats")
+
+    serve_p = sub.add_parser("serve", help="start the ForgeMind HTTP API server")
+    serve_p.add_argument("--host", default="127.0.0.1")
+    serve_p.add_argument("--port", type=int, default=8000)
     return parser
 
 
 def _engine_for(args) -> tuple:
-    spec = _problem_spec(args.problem)
+    spec = problem_spec(args.problem)
     config = ForgeMindConfig(
         random_seed=args.seed,
         beam_width=getattr(args, "beam_width", 3),
@@ -66,7 +72,14 @@ def _engine_for(args) -> tuple:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    spec = _problem_spec(args.problem)
+
+    if args.command == "serve":
+        from forgemind.api.server import serve
+
+        serve(host=args.host, port=args.port)
+        return 0
+
+    spec = problem_spec(args.problem)
 
     if args.command == "run":
         _, engine = _engine_for(args)

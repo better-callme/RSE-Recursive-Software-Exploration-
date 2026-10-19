@@ -114,6 +114,27 @@ TRANSITION_APPLIED/REJECTED, DUPLICATE_DETECTED, VERIFICATION_*, FAILURE_,
 STAGNATION_DETECTED, BACKTRACK, STATE_ACCEPTED, SEARCH_TERMINATED) so any run
 is fully explainable after the fact.
 
+## HTTP API
+
+ForgeMind also ships a stdlib-only HTTP API (no third-party runtime
+dependencies):
+
+```bash
+python -m forgemind serve --port 8000
+```
+
+| Method | Endpoint        | Description                                    |
+|--------|-----------------|------------------------------------------------|
+| GET    | /api/health     | `{"status": "ok", "version": ...}`             |
+| GET    | /api/problems   | list of registered problem ids                 |
+| POST   | /api/run        | run ForgeMind search, return metrics + summary |
+| POST   | /api/trace      | run search, return the full event trace         |
+| POST   | /api/benchmark  | baseline vs ForgeMind comparison               |
+
+POST bodies are JSON, e.g. `{"problem": "stats", "seed": 0,
+"beam_width": 3, "max_depth": 6}`. Unknown problems return 404;
+malformed JSON returns 400.
+
 ## Security limitations (read this)
 
 Candidate code is untrusted. The v0.1 subprocess environment provides:
