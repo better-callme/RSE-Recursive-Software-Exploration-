@@ -94,15 +94,23 @@ def test_file_access_outside_working_directory_is_visible_but_documented():
 
     We assert the current (weaker) behavior so a future container backend can
     tighten it, and we document that this is NOT isolation.
+
+    The probe file is created by the test itself (not a system path like
+    /etc/hostname, whose presence/content varies across machines), so the
+    test is hermetic.
     """
     import tempfile
     e = SubprocessExecutionEnvironment()
-    with tempfile.TemporaryDirectory() as d:
-        with open(os.path.join(d, "p.py"), "w") as fh:
-            fh.write("print(open('/etc/hostname').read() != '')\n")
-        r = e.execute(d, ["python3", "p.py"])
+    with tempfile.TemporaryDirectory() as outside, \
+         tempfile.TemporaryDirectory() as workdir:
+        secret = os.path.join(outside, "secret.txt")
+        with open(secret, "w") as fh:
+            fh.write("outside-the-jail")
+        with open(os.path.join(workdir, "p.py"), "w") as fh:
+            fh.write(f"print(open({secret!r}).read())\n")
+        r = e.execute(workdir, ["python3", "p.py"])
     # Documenting reality: read succeeds on POSIX subprocess sandbox.
-    assert "True" in r.stdout or r.exit_code != 0
+    assert "outside-the-jail" in r.stdout or r.exit_code != 0
 
 
 def test_memory_pressure_killed_or_limited():
