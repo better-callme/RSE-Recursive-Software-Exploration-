@@ -77,11 +77,31 @@ def test_trace(api_base):
 
 
 def test_benchmark(api_base):
-    status, payload = _post(api_base, "/api/benchmark", {"problem": "stats"})
+    status, payload = _post(api_base, "/api/benchmark", {})
     assert status == 200
-    assert payload["comparison"]["delta_success"] is not None
-    assert payload["forgemind"]["success_rate"] is not None
-    assert payload["baseline"]["success_rate"] is not None
+    assert payload["problem_names"] == ["stats", "stats-trap"]
+    assert len(payload["per_problem"]) == 2
+    agg = payload["aggregate"]
+    assert agg["delta_success"] is not None
+    assert agg["forgemind_success_rate"] is not None
+    assert agg["baseline_success_rate"] is not None
+
+
+def test_benchmark_single_problem(api_base):
+    status, payload = _post(api_base, "/api/benchmark",
+                            {"problems": ["stats-trap"]})
+    assert status == 200
+    assert payload["problem_names"] == ["stats-trap"]
+    row = payload["per_problem"][0]
+    assert row["forgemind"]["success"] is True
+    assert row["baseline"]["success"] is False
+
+
+def test_benchmark_unknown_problem_is_404(api_base):
+    status, payload = _post(api_base, "/api/benchmark",
+                            {"problems": ["nope"]})
+    assert status == 404
+    assert "error" in payload
 
 
 def test_unknown_problem_is_404(api_base):

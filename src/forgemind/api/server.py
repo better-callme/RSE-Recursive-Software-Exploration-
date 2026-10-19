@@ -92,16 +92,13 @@ def api_trace(problem: str = "stats", seed: int = 0,
     }
 
 
-def api_benchmark(problem: str = "stats", seed: int = 0) -> dict[str, Any]:
-    spec = _problem_spec(problem)
+def api_benchmark(problems: list[str] | None = None, seed: int = 0) -> dict[str, Any]:
+    from forgemind.benchmark.problems import list_problem_names
+
+    names = problems or list_problem_names()
     runner = ExperimentRunner(ForgeMindConfig(random_seed=seed))
-    baseline = runner.run_baseline([spec])
-    fm = runner.run_forgemind([spec])
-    return {
-        "forgemind": fm.to_json_dict(),
-        "baseline": baseline.to_json_dict(),
-        "comparison": fm.compare(baseline),
-    }
+    suite = runner.run_suite(names)
+    return suite.to_json_dict()
 
 
 # --------------------------------------------------------------------------
@@ -158,8 +155,11 @@ def _trace(body: dict[str, Any]) -> dict[str, Any]:
 
 @route("POST", "/api/benchmark")
 def _benchmark(body: dict[str, Any]) -> dict[str, Any]:
+    problems = body.get("problems")
+    if problems is not None and not isinstance(problems, list):
+        raise ValueError("'problems' must be a list of problem ids")
     return api_benchmark(
-        problem=body.get("problem", "stats"),
+        problems=problems,
         seed=int(body.get("seed", 0)),
     )
 

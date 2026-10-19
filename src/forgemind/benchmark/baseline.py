@@ -5,7 +5,8 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from forgemind.agents.mocks import MockBuilder
+from forgemind.agents.mocks import MockBuilder, MockCritic
+from forgemind.agents.projections import build_critic_projection
 from forgemind.core.config import ForgeMindConfig
 from forgemind.core.problem import ProblemSpec
 from forgemind.core.proposal import Candidate, CodePatchProposal
@@ -29,9 +30,11 @@ def run_baseline(
     referee: Referee,
     config: ForgeMindConfig | None = None,
     builder: MockBuilder | None = None,
+    critic: MockCritic | None = None,
 ) -> BaselineResult:
     config = config or ForgeMindConfig()
     builder = builder or MockBuilder()
+    critic = critic or MockCritic()
     started = time.monotonic()
     graph = SearchGraph()
 
@@ -62,14 +65,27 @@ def run_baseline(
     )
     verification = referee.verify(state)
     gate = hard_gate(verification)
+    success = gate.passed
+    termination_reason = "goal_accepted" if gate.passed else "single_shot_failed"
+    # Tier 3 (adversarial), mirroring the ForgeMind engine's adversarial gate,
+    # so "success" means the same thing in both arms and the measured delta
+    # is attributable to search, not to a different verification bar.
+    if gate.passed and config.enable_adversarial_tier:
+        proj = build_critic_projection(spec, state, verification)
+        _, attacks = critic.propose(proj, {"source_node_id": root.node_id})
+        if attacks:
+            adv = referee.verify(state, attack_tests=attacks)
+            success = adv.adversarial_passed
+            if not success:
+                termination_reason = "adversarial_failed"
     node = node.with_updates(
         verification=verification,
-        status=NodeStatus.ACCEPTED if gate.passed else NodeStatus.REJECTED,
+        status=NodeStatus.ACCEPTED if success else NodeStatus.REJECTED,
     )
     return BaselineResult(
-        success=gate.passed,
+        success=success,
         node=node,
-        termination=TerminationInfo("goal_accepted" if gate.passed else "single_shot_failed"),
+        termination=TerminationInfo(termination_reason),
         elapsed_seconds=time.monotonic() - started,
     )
 

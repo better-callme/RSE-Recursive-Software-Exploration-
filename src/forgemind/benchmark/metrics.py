@@ -124,3 +124,62 @@ def _raise_frozen_bench(self: object, name: str, value: object) -> None:
 
 for _cls in (RunRecord,):
     _cls.__setattr__ = _raise_frozen_bench  # type: ignore[method-assign]
+
+
+@dataclass(frozen=True)
+class SuiteResult:
+    """One benchmark run across a named problem suite, both arms.
+
+    ``per_problem`` rows pair the ForgeMind and baseline RunRecords for one
+    registry problem id. Because two problems can share a ProblemSpec
+    (``stats`` vs ``stats-trap``), each record's ``extra`` carries the
+    registry name under ``"suite_problem"``.
+    """
+
+    problem_names: tuple[str, ...]
+    forgemind: BenchmarkResult
+    baseline: BenchmarkResult
+
+    @property
+    def per_problem(self) -> list[dict[str, Any]]:
+        rows = []
+        fm_by_problem = {r.extra.get("suite_problem"): r
+                         for r in self.forgemind.records}
+        base_by_problem = {r.extra.get("suite_problem"): r
+                           for r in self.baseline.records}
+        for name in self.problem_names:
+            fm = fm_by_problem.get(name)
+            base = base_by_problem.get(name)
+            rows.append({
+                "problem": name,
+                "forgemind": ({**dataclasses.asdict(fm),
+                               "extra": dict(fm.extra)} if fm else None),
+                "baseline": ({**dataclasses.asdict(base),
+                               "extra": dict(base.extra)} if base else None),
+            })
+        return rows
+
+    def aggregate(self) -> Mapping[str, float]:
+        fm, base = self.forgemind, self.baseline
+        fm_walls = [r.wall_clock_seconds for r in fm.records]
+        base_walls = [r.wall_clock_seconds for r in base.records]
+        mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
+        return {
+            "problems": float(len(self.problem_names)),
+            "forgemind_success_rate": fm.success_rate,
+            "baseline_success_rate": base.success_rate,
+            "delta_success": fm.success_rate - base.success_rate,
+            "cost_ratio": (mean(fm_walls) / mean(base_walls)
+                           if mean(base_walls) > 0 else float("inf")),
+        }
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return {
+            "forgemind_version": forgemind.__version__,
+            "python_version": sys.version.split()[0],
+            "platform": platform.platform(),
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "problem_names": list(self.problem_names),
+            "per_problem": self.per_problem,
+            "aggregate": self.aggregate(),
+        }

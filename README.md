@@ -29,7 +29,9 @@ acceptance requires objective verification evidence produced by the Referee.
 
 Compare:
 
-- **Baseline**: one deterministic proposal, verified once.
+- **Baseline**: one deterministic proposal, verified once (including the
+  same Tier-3 adversarial tests the engine faces, so "success" means the
+  same thing in both arms).
 - **ForgeMind**: bounded beam search over multiple genuine alternatives with
   failure-driven recovery, duplicate pruning, stagnation detection, and
   adversarial (critic-generated) test tiers.
@@ -37,6 +39,29 @@ Compare:
 Measured: success rate, test pass rate, wall-clock cost, agent calls,
 verifications, candidates, nodes explored/pruned, duplicates, backtracks,
 stagnation events, token estimates.
+
+### Benchmark methodology
+
+```bash
+python -m forgemind benchmark                 # full suite (default)
+python -m forgemind benchmark --problem stats # one problem
+```
+
+The suite runs every registered problem in `forgemind/benchmark/problems`
+(`stats`, plus `stats-trap`) and aggregates per-problem success rates and
+mean wall-clock cost ratio into one report.
+
+`stats-trap` is the discriminating case: the same `stats-v1` spec, but the
+mock builder emits wrong variants first (truncated mean, then broken
+empty-list handling). The baseline takes variant 0 and fails; ForgeMind
+must recover through search. With deterministic mocks there is no other
+source of variation, so the trap is what makes the comparison informative.
+Both arms face identical verification tiers — the measured delta is
+attributable to search, not to a different bar.
+
+Honest limits: two problems sharing one spec is still a thin evidence base,
+and deterministic mocks stand in for probabilistic LLM proposers (see MVP
+limitations). Add problems and an LLM agent adapter to harden the claim.
 
 ## Architecture
 
@@ -129,11 +154,12 @@ python -m forgemind serve --port 8000
 | GET    | /api/problems   | list of registered problem ids                 |
 | POST   | /api/run        | run ForgeMind search, return metrics + summary |
 | POST   | /api/trace      | run search, return the full event trace         |
-| POST   | /api/benchmark  | baseline vs ForgeMind comparison               |
+| POST   | /api/benchmark  | baseline vs ForgeMind suite comparison     |
 
-POST bodies are JSON, e.g. `{"problem": "stats", "seed": 0,
-"beam_width": 3, "max_depth": 6}`. Unknown problems return 404;
-malformed JSON returns 400.
+POST bodies are JSON: `/api/run` and `/api/trace` take `{"problem":
+"stats", "seed": 0, "beam_width": 3, "max_depth": 6}`; `/api/benchmark`
+takes `{"problems": ["stats", "stats-trap"], "seed": 0}` (defaults to the
+full suite). Unknown problems return 404; malformed JSON returns 400.
 
 ## Security limitations (read this)
 
