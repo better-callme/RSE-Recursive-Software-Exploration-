@@ -197,7 +197,7 @@ Known platform notes observed during development:
   determinism); they're recorded as raw evidence. Weights live in config.
 - Optimizer's "maintainability" component is a neutral placeholder.
 - Beam search is bounded heuristic search, not A*.
-- One bundled benchmark problem (descriptive statistics); the engine is
+- Two bundled benchmark problems (`stats`, `stats-trap`); the engine is
   problem-agnostic.
 
 ## Future LLM integration
