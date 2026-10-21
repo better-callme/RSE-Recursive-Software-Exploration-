@@ -144,6 +144,19 @@ class SearchFrontier:
         """Insert node if its state is novel. Returns False for duplicates."""
         if not self.remember_state(node.state.content_hash):
             return False
+        return self.admit(node, guidance)
+
+    def admit(self, node: SearchNode, guidance: float) -> bool:
+        """Place an already-registered node into the frontier.
+
+        The engine registers every created state's hash for duplicate
+        detection (remember_state), so insert() — which treats a
+        registered hash as a duplicate — could never accept a search
+        child: before H1 no child node had ever entered the frontier.
+        admit() is the membership operation for those nodes; it returns
+        False only if the node is already in the frontier."""
+        if node.node_id in self._entries:
+            return False
         entry = FrontierEntry(
             node_id=node.node_id, guidance=guidance, depth=node.depth,
             creation_index=node.creation_index,
@@ -207,9 +220,24 @@ class SearchStrategy(Protocol):
         graph: SearchGraph,
     ) -> SearchNode | None: ...
 
+    def select_beam(
+        self,
+        frontier: SearchFrontier,
+        graph: SearchGraph,
+    ) -> tuple[SearchNode, ...]: ...
+
 
 class BeamSearchStrategy:
-    """Bounded best-first beam selection. NOT A* — heuristic bounded search."""
+    """Level-synchronous beam selection (H1). NOT A* — heuristic search.
+
+    A beam round is up to `beam_width` nodes at the SHALLOWEST depth
+    present in the frontier, in the frontier's deterministic sort order.
+    Level discipline is the defining property: no deeper node is ever
+    selected while a shallower one waits, no matter how high its
+    guidance scores. (Before H1 this class selected a single global
+    best node and beam_width was never read — greedy best-first wearing
+    a beam label.)
+    """
 
     def __init__(self, beam_width: int = 3) -> None:
         self.beam_width = max(1, beam_width)
@@ -225,6 +253,23 @@ class BeamSearchStrategy:
         node = graph.get(best.node_id)
         frontier.remove(best.node_id)
         return node
+
+    def select_beam(
+        self,
+        frontier: SearchFrontier,
+        graph: SearchGraph,
+    ) -> tuple[SearchNode, ...]:
+        """Remove and return one beam round (see class docstring)."""
+        entries = frontier.top_k(len(frontier))
+        if not entries:
+            return ()
+        min_depth = min(e.depth for e in entries)
+        beam = [e for e in entries if e.depth == min_depth][: self.beam_width]
+        nodes = []
+        for entry in beam:
+            frontier.remove(entry.node_id)
+            nodes.append(graph.get(entry.node_id))
+        return tuple(nodes)
 
 
 def _raise_frozen_search(self: object, name: str, value: object) -> None:

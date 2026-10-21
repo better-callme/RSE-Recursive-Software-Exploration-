@@ -161,6 +161,13 @@ class SearchEngine:
         m = self.metrics
         if len(self.frontier) == 0 and m.nodes_explored > 0:
             return TerminationInfo("frontier_empty")
+        return self._hard_budget_exceeded(started)
+
+    def _hard_budget_exceeded(self, started: float) -> TerminationInfo | None:
+        """Budget caps only — no acceptance/frontier state. Safe to check
+        mid-round, when beam members are already out of the frontier and
+        an empty frontier does not mean the search is done."""
+        m = self.metrics
         if m.nodes_explored >= self.config.max_nodes:
             return TerminationInfo("max_nodes")
         if m.verifications >= self.config.max_verifications:
@@ -177,26 +184,36 @@ class SearchEngine:
             if exhausted is not None:
                 return exhausted
 
-            node = self.strategy.select_next(self.frontier, self.graph)
-            if node is None:
+            # H1: expand in beam rounds — up to beam_width nodes at the
+            # shallowest frontier depth before any deeper node is touched.
+            beam = self.strategy.select_beam(self.frontier, self.graph)
+            if not beam:
                 return TerminationInfo("frontier_empty")
 
-            self.history.append(EventType.NODE_SELECTED, node=node.node_id,
-                                depth=node.depth, hash=node.state.content_hash[:12])
-            self.metrics.nodes_explored += 1
-            self.metrics.max_depth_reached = max(self.metrics.max_depth_reached,
-                                                 node.depth)
+            for node in beam:
+                if self._accepted is not None:
+                    return TerminationInfo("goal_accepted",
+                                           self._accepted.node_id)
+                exhausted = self._hard_budget_exceeded(started)
+                if exhausted is not None:
+                    return exhausted
 
-            if node.depth >= self.config.max_depth:
-                rec = self.recovery.record(
-                    state_hash=node.state.content_hash, candidate_id="",
-                    failure_type=FailureType.DEPTH_EXHAUSTED, stage="search",
-                    evidence=f"depth {node.depth} reached",
-                )
-                self._record_failure(node, rec)
-                continue
+                self.history.append(EventType.NODE_SELECTED, node=node.node_id,
+                                    depth=node.depth, hash=node.state.content_hash[:12])
+                self.metrics.nodes_explored += 1
+                self.metrics.max_depth_reached = max(self.metrics.max_depth_reached,
+                                                     node.depth)
 
-            self._expand_node(node)
+                if node.depth >= self.config.max_depth:
+                    rec = self.recovery.record(
+                        state_hash=node.state.content_hash, candidate_id="",
+                        failure_type=FailureType.DEPTH_EXHAUSTED, stage="search",
+                        evidence=f"depth {node.depth} reached",
+                    )
+                    self._record_failure(node, rec)
+                    continue
+
+                self._expand_node(node)
 
     def _expand_node(self, node: SearchNode) -> None:
         records_before = len(self._all_records)
@@ -337,7 +354,11 @@ class SearchEngine:
                 # Keep failed-but-informative states out of the frontier;
                 # repair happens from the parent with evidence attached.
             else:
-                inserted = self.frontier.insert(child, guidance=scores.guidance)
+                # admit(), not insert(): the child's hash was registered
+                # at creation for duplicate detection, and insert()
+                # treats a registered hash as a duplicate (H1 finding —
+                # before this, no child ever entered the frontier).
+                inserted = self.frontier.admit(child, guidance=scores.guidance)
                 inserted_any = inserted_any or inserted
                 if inserted:
                     self.history.append(EventType.NODE_INSERTED, node=child.node_id,
