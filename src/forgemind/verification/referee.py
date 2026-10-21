@@ -3,11 +3,28 @@
 Multi-tier: V1 static -> V2 dynamic acceptance -> V3 adversarial/regression.
 Candidate code never executes in-process; everything runs through an
 ExecutionEnvironment subprocess.
+
+Evidence channel (C1): the harness writes its structured result as JSON
+to a file in a referee-owned directory OUTSIDE the candidate workdir,
+authenticated by a per-run random nonce. The nonce and result path are
+scrubbed from sys.argv before any candidate module is imported, so
+candidate code never sees them through normal channels. Candidate
+stdout/stderr are diagnostics only and are NEVER parsed for the verdict.
+Missing, corrupt or nonce-mismatched evidence fails closed.
+
+Residual limit (documented honestly, same stance as the sandbox note in
+environment.py): candidate code shares a process with the harness, so a
+candidate doing deliberate stack-frame introspection is out of scope for
+this channel; that is the future container backend's job.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import secrets
+import shutil
+import tempfile
 import textwrap
 from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
@@ -27,7 +44,8 @@ from forgemind.verification.static import StaticVerifier
 
 _HARNESS_TEMPLATE = textwrap.dedent(
     '''
-    """Generated verification harness. Executes declared tests, emits JSON."""
+    """Generated verification harness. Executes declared tests and writes
+    the structured result to the referee-owned result file (never stdout)."""
     import json, sys, traceback
 
     def run(tests):
@@ -54,11 +72,20 @@ _HARNESS_TEMPLATE = textwrap.dedent(
 
     if __name__ == "__main__":
         payload = json.loads(sys.argv[1])
+        result_file = payload["result_file"]
+        nonce = payload["nonce"]
+        sections = payload["sections"]
+        # Scrub BEFORE importing any test module: candidate code is imported
+        # by the test modules and must never see the result path or nonce.
+        sys.argv = [sys.argv[0]]
         out = {}
-        for section, module_name in payload.items():
+        for section, module_name in sections.items():
             prefixes = ("test_", "attack_") if section != "regression" else ("regress_",)
             out[section] = run(load(module_name, prefixes))
-        print("HARNESS_JSON:" + json.dumps(out))
+        # The verdict travels ONLY via this referee-owned file. Nothing
+        # authoritative is printed: candidate stdout is untrusted.
+        with open(result_file, "w", encoding="utf-8") as fh:
+            json.dump({"nonce": nonce, "sections": out}, fh)
     '''
 )
 
@@ -119,6 +146,7 @@ class Referee:
 
         # ---- prepare sandbox -------------------------------------------------
         workdir = self._env.materialize_state(state)  # type: ignore[attr-defined]
+        result_dir: str | None = None
         try:
             state.write_to_disk(workdir)
             with open(f"{workdir}/__fm_harness.py", "w", encoding="utf-8") as fh:
@@ -142,16 +170,29 @@ class Referee:
                 with open(f"{workdir}/__fm_regression.py", "w", encoding="utf-8") as fh:
                     fh.write(reg_src)
 
-            command = ["python3", "__fm_harness.py", json.dumps(sections)]
+            # Referee-controlled evidence channel (C1): per-run result
+            # directory outside the candidate workdir + random nonce.
+            result_dir = tempfile.mkdtemp(prefix="forgemind-result-")
+            result_path = os.path.join(result_dir, "result.json")
+            nonce = secrets.token_hex(16)
+            payload = json.dumps({
+                "sections": sections,
+                "result_file": result_path,
+                "nonce": nonce,
+            })
+            command = ["python3", "__fm_harness.py", payload]
             result: ExecutionResult = self._env.execute(  # type: ignore[attr-defined]
                 workdir, command, self._config.resources
             )
-            return self._interpret(result, adversarial_expected=bool(attack_tests),
+            return self._interpret(result, result_path=result_path, nonce=nonce,
+                                   adversarial_expected=bool(attack_tests),
                                    regression_expected=bool(regression_tests))
         finally:
             cleanup = getattr(self._env, "cleanup", None)
             if cleanup is not None:
                 cleanup(workdir)
+            if result_dir is not None:
+                shutil.rmtree(result_dir, ignore_errors=True)
 
     # ------------------------------------------------------------------
     def _problem_test_sources(self) -> Mapping[str, str]:
@@ -167,10 +208,34 @@ class Referee:
             "no test source available: attach_test_provider() or a "
             "spec with test_files() is required for dynamic verification")
 
+    @staticmethod
+    def _read_evidence(result_path: str, nonce: str) -> dict | None:
+        """Return the harness's section results, or None (fail-closed).
+
+        Evidence is valid only if the result file exists, parses as a
+        JSON object, carries THIS run's nonce, and has a dict of
+        sections. Anything else — missing file, corrupt JSON, wrong
+        nonce, wrong shape — is treated as no evidence at all.
+        Candidate stdout/stderr play no part here by design (C1).
+        """
+        try:
+            with open(result_path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("nonce") != nonce:
+            return None
+        sections = payload.get("sections")
+        return sections if isinstance(sections, dict) else None
+
     def _interpret(
         self,
         exec_result: ExecutionResult,
         *,
+        result_path: str,
+        nonce: str,
         adversarial_expected: bool,
         regression_expected: bool,
     ) -> VerificationResult:
@@ -185,19 +250,16 @@ class Referee:
         if exec_result.timed_out:
             return VerificationResult(static_gate_passed=True, failure_type=
                                       FailureType.TIMEOUT.value, **base)
-        marker = "HARNESS_JSON:"
-        line = next((l for l in exec_result.stdout.splitlines()
-                     if l.startswith(marker)), None)
-        if line is None:
+        data = self._read_evidence(result_path, nonce)
+        if data is None:
             return VerificationResult(
                 static_gate_passed=True,
-                violations=("harness produced no structured result",),
+                violations=("harness produced no valid structured result",),
                 failure_type=FailureType.IMPORT_ERROR.value
                 if "ImportError" in exec_result.stderr or "ModuleNotFoundError" in exec_result.stderr
                 else FailureType.INTERNAL_ERROR.value,
                 **base,
             )
-        data = json.loads(line[len(marker):])
 
         acc = data.get("acceptance", {})
         adv = data.get("adversarial")
