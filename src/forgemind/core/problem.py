@@ -36,6 +36,11 @@ class ProblemSpec:
     dependency_constraints: tuple[str, ...] = ()
     language: str = "python"
     runtime: str = "python3"
+    # Acceptance test SOURCES (filename -> source). Part of the spec's
+    # identity (H2): verification must be a function of the spec, so the
+    # sources live here and are covered by spec_hash — never smuggled
+    # onto the frozen spec as a hidden attribute.
+    test_sources: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.problem_id:
@@ -51,6 +56,9 @@ class ProblemSpec:
             "performance_constraints",
             MappingProxyType(dict(self.performance_constraints)),
         )
+        object.__setattr__(
+            self, "test_sources", MappingProxyType(dict(self.test_sources))
+        )
 
     @property
     def spec_hash(self) -> str:
@@ -65,6 +73,7 @@ class ProblemSpec:
             "dependency_constraints": sorted(self.dependency_constraints),
             "language": self.language,
             "runtime": self.runtime,
+            "test_sources": dict(sorted(self.test_sources.items())),
         }
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()

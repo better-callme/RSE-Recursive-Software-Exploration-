@@ -32,10 +32,10 @@ class ExperimentRunner:
 
     def _referee(self, spec: ProblemSpec) -> Referee:
         referee = Referee(spec, self.env, self.config)
-        # Wire test sources for any spec exposing test_files (e.g. StatsProblem).
-        provider = getattr(spec, "test_files", None) or self._test_provider
-        if callable(provider):
-            referee.attach_test_provider(provider)
+        # Test sources normally come from spec.test_sources (H2); a
+        # runner-level provider, when set, is an explicit override.
+        if callable(self._test_provider):
+            referee.attach_test_provider(self._test_provider)
         return referee
 
     def run_forgemind(

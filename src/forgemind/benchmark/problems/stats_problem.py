@@ -88,7 +88,8 @@ class StatsProblem:
         dependency_constraints=(),
         language="python",
         runtime="python3",
+        test_sources={"__fm_acceptance_tests.py": _ACCEPTANCE_SOURCE},
     )
 
     def test_files(self) -> dict[str, str]:
-        return {"__fm_acceptance_tests.py": _ACCEPTANCE_SOURCE}
+        return dict(self.spec.test_sources)

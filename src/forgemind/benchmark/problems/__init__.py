@@ -36,12 +36,13 @@ def list_problem_names() -> list[str]:
 
 
 def problem_spec(name: str) -> ProblemSpec:
-    """Build the ProblemSpec for a registered problem id (KeyError if unknown)."""
-    problem = PROBLEMS[name][0]()
-    spec = problem.spec
-    if hasattr(problem, "test_files"):
-        object.__setattr__(spec, "_test_provider_ref", problem.test_files)
-    return spec
+    """Build the ProblemSpec for a registered problem id (KeyError if unknown).
+
+    The returned spec carries its acceptance test sources in
+    `spec.test_sources`, covered by `spec_hash` (H2) — no hidden
+    attributes are attached to the frozen spec.
+    """
+    return PROBLEMS[name][0]().spec
 
 
 def problem_builder(name: str) -> MockBuilder:

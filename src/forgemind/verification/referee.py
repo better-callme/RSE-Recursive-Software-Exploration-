@@ -196,17 +196,17 @@ class Referee:
 
     # ------------------------------------------------------------------
     def _problem_test_sources(self) -> Mapping[str, str]:
+        # An explicitly attached provider wins (a visible override at the
+        # construction site). Otherwise the verdict must be a function of
+        # the spec alone (H2): sources come from spec.test_sources, which
+        # spec_hash covers. No hidden spec attributes are consulted.
         if self._test_provider is not None:
             return dict(self._test_provider())
-        provider = getattr(self._spec, "_test_provider_ref", None)
-        if callable(provider):
-            return dict(provider())
-        provider = getattr(self._spec, "test_files", None)
-        if callable(provider):
-            return dict(provider())
+        if self._spec.test_sources:
+            return dict(self._spec.test_sources)
         raise ValueError(
             "no test source available: attach_test_provider() or a "
-            "spec with test_files() is required for dynamic verification")
+            "spec with test_sources is required for dynamic verification")
 
     @staticmethod
     def _read_evidence(result_path: str, nonce: str) -> dict | None:

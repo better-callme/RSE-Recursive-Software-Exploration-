@@ -47,10 +47,9 @@ def _problem_spec(name: str):
 
 def _make_engine(spec, config: ForgeMindConfig) -> SearchEngine:
     env = SubprocessExecutionEnvironment(config.resources)
+    # Test sources come from spec.test_sources (H2); no provider wiring
+    # is needed here — the referee reads them from the spec.
     referee = Referee(spec, env, config)
-    provider = getattr(spec, "test_files", None)
-    if callable(provider):
-        referee.attach_test_provider(provider)
     return SearchEngine(
         spec, config, referee=referee,
         recovery=RecoveryPolicy(), history=History(),
