@@ -33,7 +33,12 @@ from forgemind.core.proposal import (
 )
 from forgemind.core.state import CodebaseState
 from forgemind.core.transition import TransitionEngine
-from forgemind.recovery.failure import FailureType, RecoveryAction, RecoveryPolicy
+from forgemind.recovery.failure import (
+    FailureRecord,
+    FailureType,
+    RecoveryAction,
+    RecoveryPolicy,
+)
 from forgemind.search.node import (
     BeamSearchStrategy,
     NodeStatus,
@@ -111,6 +116,13 @@ class SearchEngine:
         self._critiques: tuple[CritiqueProposal, ...] = ()
         self._architecture = None
         self._failure_counts: dict[str, int] = {}
+        # C2 recovery state: every recorded failure, kept per node and in
+        # global record order, so failures can be fed back to the builder
+        # and recovery actions can be enacted instead of only logged.
+        self._failures_by_node: dict[str, list[FailureRecord]] = {}
+        self._all_records: list[FailureRecord] = []
+        self._repairs_used: dict[str, int] = {}
+        self._repair_mode: set[str] = set()
         self._accepted: SearchNode | None = None
         self._regression_tests: dict[str, str] = {}
 
@@ -187,6 +199,7 @@ class SearchEngine:
             self._expand_node(node)
 
     def _expand_node(self, node: SearchNode) -> None:
+        records_before = len(self._all_records)
         # Architect once at root.
         if self._architecture is None:
             arch_proj = build_architect_projection(self.spec, node.state)
@@ -195,13 +208,31 @@ class SearchEngine:
             if proposals:
                 self._architecture = proposals[0]
 
+        failures = self._failures_for(node)
         builder_proj = build_builder_projection(
             self.spec, node.state, architecture=self._architecture,
+            failures=failures,
             critiques=self._critiques, attempt_number=len(self._critiques),
         )
-        patch_proposals = self._call_agent(
-            self.builder, builder_proj, source_node_id=node.node_id)
+        if node.node_id in self._repair_mode:
+            # C2: a previous expansion's failures demanded repair (or
+            # critic analysis, which already ran inline); this re-expansion
+            # is the builder's repair turn, evidence attached. Builders
+            # without repair() fall back to propose() — the projection
+            # still carries prior_failures, so the retry is informed.
+            self._repair_mode.discard(node.node_id)
+            evidence = "; ".join(r.evidence for r in failures)[:2000]
+            patch_proposals = self._call_repair(
+                builder_proj, evidence, source_node_id=node.node_id)
+            if patch_proposals is None:
+                patch_proposals = self._call_agent(
+                    self.builder, builder_proj, source_node_id=node.node_id)
+        else:
+            patch_proposals = self._call_agent(
+                self.builder, builder_proj, source_node_id=node.node_id)
 
+        inserted_any = False
+        best_child_guidance = 0.0
         surviving: list[tuple[Candidate, CodebaseState]] = []
         for gen_index, proposal in enumerate(patch_proposals[
                 : self.config.branching_factor]):
@@ -270,6 +301,7 @@ class SearchEngine:
             repeated = self._failure_counts.get(child.state.content_hash, 0)
             scores = self.scorer.score(verification, gate, depth=child.depth,
                                        repeated_failures=repeated)
+            best_child_guidance = max(best_child_guidance, scores.guidance)
             child = child.with_updates(
                 verification=verification,
                 scores=scores,
@@ -306,10 +338,86 @@ class SearchEngine:
                 # repair happens from the parent with evidence attached.
             else:
                 inserted = self.frontier.insert(child, guidance=scores.guidance)
+                inserted_any = inserted_any or inserted
                 if inserted:
                     self.history.append(EventType.NODE_INSERTED, node=child.node_id,
                                         guidance=round(scores.guidance, 6))
                 self._check_stagnation(child, scores.guidance)
+
+        # No acceptance (that path returns above). If this expansion also
+        # left nothing in the frontier, the branch would die here — check
+        # whether recovery entitles the node to another expansion (C2).
+        self._schedule_recovery(node, records_before,
+                                inserted_any=inserted_any,
+                                guidance=best_child_guidance)
+
+    # ------------------------------------------------------------------
+    # C2: failure-driven recovery, enacted.
+    #
+    # _REEXPAND_ACTIONS justify giving a node another expansion when its
+    # branch would otherwise die. PRUNE / TERMINATE_BRANCH / NONE never
+    # do: a duplicate-only expansion, for instance, carries no new
+    # information and must not burn repair attempts.
+    _REEXPAND_ACTIONS = frozenset({
+        RecoveryAction.BUILDER_RETRY, RecoveryAction.BUILDER_REPAIR,
+        RecoveryAction.CRITIC_ANALYSIS,
+        RecoveryAction.ALTERNATIVE_IMPLEMENTATION, RecoveryAction.BACKTRACK,
+    })
+    # Actions whose re-expansion is the builder's repair turn (the critic
+    # has already run inline for CRITIC_ANALYSIS, as before).
+    _REPAIR_ACTIONS = frozenset({
+        RecoveryAction.BUILDER_REPAIR, RecoveryAction.CRITIC_ANALYSIS,
+    })
+
+    def _schedule_recovery(self, node: SearchNode, records_before: int,
+                           *, inserted_any: bool, guidance: float) -> None:
+        if inserted_any:
+            return  # a live continuation exists; recovery is per-branch
+        records = self._all_records[records_before:]
+        if not records:
+            return
+        actions = {r.recovery for r in records}
+        if not actions & self._REEXPAND_ACTIONS:
+            return
+        used = self._repairs_used.get(node.node_id, 0)
+        if used >= self.config.max_repair_attempts_per_node:
+            return  # cap enforced: config.max_repair_attempts_per_node
+        self._repairs_used[node.node_id] = used + 1
+        accumulated = {r.recovery for r in self._failures_for(node)}
+        if accumulated & self._REPAIR_ACTIONS:
+            self._repair_mode.add(node.node_id)
+        if self.frontier.reinsert(node, guidance):
+            self.metrics.backtracks += 1
+            self.history.append(EventType.BACKTRACK, node=node.node_id,
+                                attempt=used + 1)
+            self.history.append(
+                EventType.RECOVERY_ACTION, node=node.node_id,
+                actions=",".join(sorted(a.name for a in actions)))
+
+    def _call_repair(self, projection, evidence: str, *,
+                     source_node_id: str) -> tuple | None:
+        """Invoke builder.repair() with _call_agent's bookkeeping.
+
+        Returns None when the builder offers no repair(); the caller
+        falls back to a propose() retry whose projection still carries
+        prior_failures.
+        """
+        repair = getattr(self.builder, "repair", None)
+        if repair is None:
+            return None
+        self.metrics.agent_calls += 1
+        proposals = repair(projection, evidence)
+        self.history.append(EventType.AGENT_CALLED,
+                            role=getattr(self.builder, "role", "?"),
+                            method="repair")
+        for p in proposals:
+            self.history.append(EventType.PROPOSAL_GENERATED,
+                                kind=type(p).__name__,
+                                agent=getattr(self.builder, "role", "?"),
+                                id=getattr(p, "proposal_id", ""))
+        self.metrics.token_estimate += sum(
+            len(getattr(p, "rationale", "")) // 4 for p in proposals)
+        return proposals
 
     # ------------------------------------------------------------------
     def _verify(self, node: SearchNode) -> VerificationResult:
@@ -429,9 +537,21 @@ class SearchEngine:
     def _record_failure(self, node: SearchNode, record) -> None:
         self._failure_counts[record.state_hash] = (
             self._failure_counts.get(record.state_hash, 0) + 1)
+        self._failures_by_node.setdefault(node.node_id, []).append(record)
+        self._all_records.append(record)
         self.history.append(EventType.FAILURE_RECORDED, type=record.failure_type.value,
                             node=node.node_id, stage=record.stage,
                             recovery=record.recovery.name)
+
+    def _failures_for(self, node: SearchNode) -> tuple[FailureRecord, ...]:
+        """Failure evidence relevant to expanding `node`: records kept
+        against the node itself plus those kept against its children
+        (verification failures are recorded against the child, transition
+        failures against the parent). Deterministic record order."""
+        records = list(self._failures_by_node.get(node.node_id, ()))
+        for child_id in self.graph.children.get(node.node_id, ()):
+            records.extend(self._failures_by_node.get(child_id, ()))
+        return tuple(records)
 
     def _call_agent(self, agent, projection, *, source_node_id: str) -> tuple:
         self.metrics.agent_calls += 1

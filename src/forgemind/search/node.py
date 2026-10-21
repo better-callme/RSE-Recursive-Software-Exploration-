@@ -155,6 +155,22 @@ class SearchFrontier:
     def remove(self, node_id: str) -> FrontierEntry | None:
         return self._entries.pop(node_id, None)
 
+    def reinsert(self, node: SearchNode, guidance: float) -> bool:
+        """Re-add a previously expanded node for a recovery re-attempt (C2).
+
+        Bypasses the closed-hash novelty check in insert(): the state is
+        known by design — recovery deliberately revisits it. Returns False
+        if the node is already in the frontier.
+        """
+        if node.node_id in self._entries:
+            return False
+        self._entries[node.node_id] = FrontierEntry(
+            node_id=node.node_id, guidance=guidance, depth=node.depth,
+            creation_index=node.creation_index,
+        )
+        self.prune_to_capacity()
+        return True
+
     def select(self) -> FrontierEntry | None:
         """Deterministically pick the best entry without removing it."""
         entries = sorted(self._entries.values(), key=FrontierEntry.sort_key)
