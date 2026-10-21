@@ -298,8 +298,12 @@ class Referee:
         )
 
 
-def hard_gate(result: VerificationResult) -> HardGateResult:
-    """G(S) = syntax ∧ contract ∧ requiredTests ∧ security ∧ regression."""
+def hard_gate(result: VerificationResult, *,
+              adversarial_expected: bool = False) -> HardGateResult:
+    """G(S) = syntax ∧ contract ∧ requiredTests ∧ security ∧ regression
+    ∧ adversarial (adversarial only when the caller expected that tier's
+    evidence, C3 — callers that never ran attack tests, e.g. the baseline's
+    first pass, are unaffected)."""
     gates = {
         "syntax": result.static_gate_passed,
         "contract": not any("interface constraint" in v or "forbidden" in v
@@ -308,5 +312,6 @@ def hard_gate(result: VerificationResult) -> HardGateResult:
         "security": not any("forbidden call" in v or "forbidden import" in v
                             for v in result.violations) and not result.timed_out,
         "regression": result.regression_passed,
+        "adversarial": result.adversarial_passed if adversarial_expected else True,
     }
     return HardGateResult(gates=gates)

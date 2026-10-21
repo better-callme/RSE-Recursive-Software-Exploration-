@@ -76,7 +76,8 @@ class VerificationResult:
         return (
             self.static_gate_passed
             and self.acceptance_passed
-            and (self.adversarial_passed or True) is not False
+            and self.adversarial_passed
+            and self.regression_passed
             and not self.violations
         )
 

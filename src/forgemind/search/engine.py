@@ -377,7 +377,11 @@ class SearchEngine:
         )
         self.graph.add(opt_node)
         verification = self._verify(opt_node)
-        gate = hard_gate(verification)
+        # C3: _verify ran the attack tests too; the gate must honor their
+        # verdict, or an adversarially broken "optimization" would replace
+        # the verified artifact as the accepted state.
+        gate = hard_gate(verification,
+                         adversarial_expected=bool(self._attack_tests))
         scores = self.scorer.score(verification, gate, depth=opt_node.depth)
         opt_node = opt_node.with_updates(
             verification=verification, scores=scores,
