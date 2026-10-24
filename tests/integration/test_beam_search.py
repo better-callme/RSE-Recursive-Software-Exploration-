@@ -1,11 +1,20 @@
 """H1 integration: level discipline beats guidance.
 
-Scenario: the root produces two depth-1 states, X and Y, that pass the
-hard gate but fail the adversarial tier (so both land in the frontier).
-Expanding X produces a depth-2 state G whose guidance (7/8 tests) is
-HIGHER than Y's (6/8). Greedy best-first — the pre-H1 behavior — would
-expand G before Y. A beam search must finish the depth-1 level first:
-the NODE_SELECTED order must be root, X, Y.
+Scenario: the root produces two depth-1 states, X and Y, that pass
+the hard gate but fail the adversarial tier (so both land in the
+frontier). Expanding X produces a depth-2 state G. A beam search
+must finish the depth-1 level first: the NODE_SELECTED order must
+be root, X, Y.
+
+M3 note on the scenario's history: originally G outscored Y (7/8
+vs 6/8) because correctness mixed adversarial results into the
+rate — greedy best-first would then have expanded G before Y, and
+the test discriminated beam from best-first. M3's acceptance-rate
+correctness removes that contamination: both gate-passing nodes
+score correctness 1.0, so guidance is depth-monotonic and best-first
+would agree with beam here. Beam-vs-best-first discrimination now
+lives in the select_beam unit tests; this test pins end-to-end
+level order plus the depth-monotonic guidance property.
 """
 
 from forgemind.benchmark.problems.stats_problem import StatsProblem
@@ -131,7 +140,7 @@ class LevelBuilder:
         )
 
 
-def test_beam_expands_level_before_deeper_higher_guidance_node(spec):
+def test_beam_selects_shallow_level_first(spec):
     config = ForgeMindConfig()
     referee = Referee(spec, SubprocessExecutionEnvironment(config.resources),
                       config)
@@ -150,13 +159,15 @@ def test_beam_expands_level_before_deeper_higher_guidance_node(spec):
         e.metadata["node"] for e in engine.history.events
         if e.event_type is EventType.NODE_SELECTED
     ]
-    # Beam discipline: Y (depth 1) is selected before G (depth 2) even
-    # though G's guidance is higher. Best-first would pick G third.
+    # Beam discipline: Y (depth 1) is selected before G (depth 2).
     assert selected == [root_id, x_id, y_id]
-    # Sanity on the scenario itself: G really was created and inserted,
-    # and really does outscore Y — otherwise the test proves nothing.
+    # Sanity on the scenario itself: G really was created and inserted.
+    # Under M3's acceptance-rate correctness, both gate-passing nodes
+    # score correctness 1.0, so guidance is depth-monotonic: G (depth
+    # 2) scores BELOW Y (depth 1). The level order above is beam
+    # discipline, not guidance order.
     g_nodes = [n for n in graph.nodes.values()
                if "# variant G" in n.state.files.get("solution.py", "")]
     assert g_nodes
     y_node = graph.get(y_id)
-    assert g_nodes[0].scores.guidance > y_node.scores.guidance
+    assert g_nodes[0].scores.guidance < y_node.scores.guidance

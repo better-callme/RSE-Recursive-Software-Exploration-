@@ -102,6 +102,26 @@ class TieredRun:
     regression: dict[str, int]
 
 
+@dataclass(frozen=True)
+class _TierOutcome:
+    """One tier's isolated result (M3). Internal to the referee."""
+    name: str
+    passed: bool
+    total: int
+    passes: int
+    failures: int
+    details: tuple[str, ...]
+    executed: tuple[str, ...]
+    timed_out: bool
+    crashed: bool
+    failure_type: str  # "" when passed
+    runtime_ms: float
+    peak_memory_mb: float
+    stdout: str
+    stderr: str
+    exit_code: int
+
+
 class TestProvider(Protocol):
     """A problem supplies its acceptance/regression test sources."""
 
@@ -160,60 +180,38 @@ class Referee:
                 failure_type=ftype,
             )
 
-        # ---- prepare sandbox -------------------------------------------------
-        workdir = self._env.materialize_state(state)  # type: ignore[attr-defined]
-        result_dir: str | None = None
+        # ---- dynamic tiers (M3): one subprocess per tier ------------------
+        # Each tier runs SEQUENTIALLY in its own fresh workdir holding
+        # exactly the candidate state + the harness + that tier's test
+        # module, with its own evidence file and nonce. A tier's crash
+        # or timeout fails that tier only and never aborts the others.
+        tiers: list[tuple[str, str, str]] = []
+        acceptance_src = "\n\n".join(
+            src for src in self._problem_test_sources().values()
+        ) or "pass\n"
+        tiers.append(("acceptance", "__fm_acceptance", acceptance_src))
+        if attack_tests:
+            tiers.append(("adversarial", "__fm_adversarial",
+                          "\n\n".join(a.test_code for a in attack_tests)))
+        if regression_tests:
+            tiers.append(("regression", "__fm_regression",
+                          "\n\n".join(regression_tests.values())))
+
+        # Referee-controlled evidence channel (C1, per-tier in M3):
+        # one result directory outside all workdirs, one file + nonce
+        # per tier, so compromising one tier forges at most its own.
+        result_dir = tempfile.mkdtemp(prefix="forgemind-result-")
         try:
-            state.write_to_disk(workdir)
-            with open(f"{workdir}/__fm_harness.py", "w", encoding="utf-8") as fh:
-                fh.write(_HARNESS_TEMPLATE)
-
-            sections: dict[str, str] = {"acceptance": "__fm_acceptance"}
-            acceptance_src = "\n\n".join(
-                src for src in self._problem_test_sources().values()
-            ) or "pass\n"
-            with open(f"{workdir}/__fm_acceptance.py", "w", encoding="utf-8") as fh:
-                fh.write(acceptance_src)
-
-            if attack_tests:
-                sections["adversarial"] = "__fm_adversarial"
-                adv_src = "\n\n".join(a.test_code for a in attack_tests)
-                with open(f"{workdir}/__fm_adversarial.py", "w", encoding="utf-8") as fh:
-                    fh.write(adv_src)
-            if regression_tests:
-                sections["regression"] = "__fm_regression"
-                reg_src = "\n\n".join(regression_tests.values())
-                with open(f"{workdir}/__fm_regression.py", "w", encoding="utf-8") as fh:
-                    fh.write(reg_src)
-
-            # Referee-controlled evidence channel (C1): per-run result
-            # directory outside the candidate workdir + random nonce.
-            result_dir = tempfile.mkdtemp(prefix="forgemind-result-")
-            result_path = os.path.join(result_dir, "result.json")
-            nonce = secrets.token_hex(16)
-            payload = json.dumps({
-                "sections": sections,
-                "result_file": result_path,
-                "nonce": nonce,
-            })
-            command = ["python3", "__fm_harness.py", payload]
-            result: ExecutionResult = self._env.execute(  # type: ignore[attr-defined]
-                workdir, command, self._config.resources
-            )
-            return self._interpret(result, result_path=result_path, nonce=nonce,
-                                   adversarial_expected=bool(attack_tests),
-                                   regression_expected=bool(regression_tests),
-                                   contract_passed=contract_passed,
-                                   contract_violation=contract_violation,
-                                   forbidden_constructs=tuple(
-                                       static.forbidden_constructs),
-                                   static_analysis_complete=static.analysis_complete)
+            outcomes = [self._run_tier(state, name, module, source, result_dir)
+                        for name, module, source in tiers]
+            return self._assemble(
+                outcomes,
+                contract_passed=contract_passed,
+                contract_violation=contract_violation,
+                forbidden_constructs=tuple(static.forbidden_constructs),
+                static_analysis_complete=static.analysis_complete)
         finally:
-            cleanup = getattr(self._env, "cleanup", None)
-            if cleanup is not None:
-                cleanup(workdir)
-            if result_dir is not None:
-                shutil.rmtree(result_dir, ignore_errors=True)
+            shutil.rmtree(result_dir, ignore_errors=True)
 
     # ------------------------------------------------------------------
     def _problem_test_sources(self) -> Mapping[str, str]:
@@ -274,95 +272,176 @@ class Referee:
                     return True, None
         return False, f"contract: entry function {entry!r} not defined in state"
 
-    def _interpret(
+    def _run_tier(self, state: CodebaseState, name: str, module: str,
+                  source: str, result_dir: str) -> _TierOutcome:
+        """Run ONE tier in isolation (M3): fresh workdir holding exactly
+        the candidate state + the harness + this tier's test module,
+        own evidence file + nonce. A crash or timeout fails this tier
+        only; the caller still runs the remaining tiers."""
+        workdir = self._env.materialize_state(state)  # type: ignore[attr-defined]
+        try:
+            state.write_to_disk(workdir)
+            with open(f"{workdir}/__fm_harness.py", "w", encoding="utf-8") as fh:
+                fh.write(_HARNESS_TEMPLATE)
+            with open(f"{workdir}/{module}.py", "w", encoding="utf-8") as fh:
+                fh.write(source)
+            result_path = os.path.join(result_dir, f"result_{name}.json")
+            nonce = secrets.token_hex(16)
+            payload = json.dumps({
+                "sections": {name: module},
+                "result_file": result_path,
+                "nonce": nonce,
+            })
+            exec_result: ExecutionResult = self._env.execute(  # type: ignore[attr-defined]
+                workdir, ["python3", "__fm_harness.py", payload],
+                self._config.resources
+            )
+            base = dict(
+                name=name,
+                runtime_ms=exec_result.runtime_ms,
+                peak_memory_mb=exec_result.peak_memory_mb,
+                stdout=exec_result.stdout[-4000:],
+                stderr=exec_result.stderr[-4000:],
+                exit_code=exec_result.exit_code,
+            )
+            if exec_result.timed_out:
+                return _TierOutcome(
+                    passed=False, total=0, passes=0, failures=0,
+                    details=(), executed=(), timed_out=True, crashed=False,
+                    failure_type=FailureType.TIMEOUT.value, **base)
+            data = self._read_evidence(result_path, nonce)
+            if data is None:
+                return _TierOutcome(
+                    passed=False, total=0, passes=0, failures=0,
+                    details=(), executed=(), timed_out=False, crashed=True,
+                    failure_type=FailureType.IMPORT_ERROR.value
+                    if "ImportError" in exec_result.stderr
+                    or "ModuleNotFoundError" in exec_result.stderr
+                    else FailureType.INTERNAL_ERROR.value,
+                    **base)
+            section = data.get(name, {})
+            total = section.get("total", 0)
+            passed_n = section.get("passed", 0)
+            failed_n = section.get("failed", 0)
+            return _TierOutcome(
+                passed=failed_n == 0 and total > 0,
+                total=total, passes=passed_n, failures=failed_n,
+                details=tuple(section.get("details", [])),
+                executed=tuple(section.get("executed") or []),
+                timed_out=False, crashed=False,
+                failure_type="",
+                **base)
+        finally:
+            cleanup = getattr(self._env, "cleanup", None)
+            if cleanup is not None:
+                cleanup(workdir)
+
+    def _assemble(
         self,
-        exec_result: ExecutionResult,
+        outcomes: list[_TierOutcome],
         *,
-        result_path: str,
-        nonce: str,
-        adversarial_expected: bool,
-        regression_expected: bool,
         contract_passed: bool,
         contract_violation: str | None,
         forbidden_constructs: tuple[str, ...],
         static_analysis_complete: bool,
     ) -> VerificationResult:
-        base = dict(
-            runtime_ms=exec_result.runtime_ms,
-            peak_memory_mb=exec_result.peak_memory_mb,
-            stdout=exec_result.stdout[-4000:],
-            stderr=exec_result.stderr[-4000:],
-            exit_code=exec_result.exit_code,
-            timed_out=exec_result.timed_out,
-            contract_passed=contract_passed,
-            forbidden_constructs=forbidden_constructs,
-            static_analysis_complete=static_analysis_complete,
-        )
-        contract_extra = (contract_violation,) if contract_violation else ()
-        if exec_result.timed_out:
-            return VerificationResult(static_gate_passed=True, failure_type=
-                                      FailureType.TIMEOUT.value,
-                                      violations=contract_extra, **base)
-        data = self._read_evidence(result_path, nonce)
-        if data is None:
-            return VerificationResult(
-                static_gate_passed=True,
-                violations=("harness produced no valid structured result",)
-                + contract_extra,
-                failure_type=FailureType.IMPORT_ERROR.value
-                if "ImportError" in exec_result.stderr or "ModuleNotFoundError" in exec_result.stderr
-                else FailureType.INTERNAL_ERROR.value,
-                **base,
-            )
+        """Merge per-tier outcomes into one verdict (M3, Revision 2
+        invariants). Tiers are independent: one tier's crash or
+        timeout never erases another tier's verdict."""
+        by_name = {o.name: o for o in outcomes}
+        acc = by_name["acceptance"]
+        adv = by_name.get("adversarial")
+        reg = by_name.get("regression")
 
-        acc = data.get("acceptance", {})
-        adv = data.get("adversarial")
-        reg = data.get("regression")
+        # M2: declared ⊆ executed, on the acceptance tier's evidence.
+        # A crashed/timed-out acceptance tier has no evidence; its
+        # failure is reported as crash/timeout, not as missing tests.
+        missing: list[str] = []
+        acceptance_passed = acc.passed
+        if not acc.crashed and not acc.timed_out:
+            declared = {t.test_id for t in self._spec.acceptance_tests}
+            missing = sorted(declared - set(acc.executed))
+            if missing:
+                acceptance_passed = False
+        adversarial_passed = adv.passed if adv is not None else True
+        regression_passed = reg.passed if reg is not None else True
 
-        acceptance_passed = acc.get("failed", 1) == 0 and acc.get("total", 0) > 0
-        adversarial_passed = (adv.get("failed", 1) == 0) if adv is not None else True
-        regression_passed = (reg.get("failed", 1) == 0) if reg is not None else True
-
-        # M2: declared ⊆ executed. A test that was not collected and
-        # executed never counts. A missing "executed" field fails
-        # closed (missing = all declared). Import failure never reaches
-        # here — it yields no evidence and fails via the path above —
-        # so both collection-failure shapes fail acceptance.
-        declared = {t.test_id for t in self._spec.acceptance_tests}
-        executed = set(acc.get("executed") or [])
-        missing = sorted(declared - executed)
-        if missing:
-            acceptance_passed = False
+        # Per-tier failure types, in tier order; any timeout takes
+        # precedence (the verdict is inconclusive, cf. H4).
+        tier_failures = []
+        if not acceptance_passed:
+            tier_failures.append(
+                acc.failure_type or FailureType.TEST_FAILURE.value)
+        if adv is not None and not adversarial_passed:
+            tier_failures.append(
+                adv.failure_type or FailureType.ADVERSARIAL_FAILURE.value)
+        if reg is not None and not regression_passed:
+            tier_failures.append(
+                reg.failure_type or FailureType.REGRESSION_FAILURE.value)
+        timed_out_tiers = tuple(o.name for o in outcomes if o.timed_out)
+        ftype = (FailureType.TIMEOUT.value if timed_out_tiers
+                 else (tier_failures[0] if tier_failures else ""))
 
         failures: list[str] = []
-        ftype = ""
         if not acceptance_passed:
-            ftype = FailureType.TEST_FAILURE.value
             if missing:
                 failures.append(
                     "Missing declared acceptance tests: " + ", ".join(missing))
-            failures.extend(acc.get("details", []))
-        if adversarial_expected and not adversarial_passed:
-            ftype = ftype or FailureType.ADVERSARIAL_FAILURE.value
-            failures.extend((adv or {}).get("details", []))
-        if regression_expected and not regression_passed:
-            ftype = ftype or FailureType.REGRESSION_FAILURE.value
-            failures.extend((reg or {}).get("details", []))
+            failures.extend(acc.details)
+            if acc.crashed:
+                failures.append(
+                    "acceptance tier produced no valid structured result")
+        if adv is not None and not adversarial_passed:
+            failures.extend(adv.details)
+            if adv.crashed:
+                failures.append(
+                    "adversarial tier produced no valid structured result")
+        if reg is not None and not regression_passed:
+            failures.extend(reg.details)
+            if reg.crashed:
+                failures.append(
+                    "regression tier produced no valid structured result")
+        contract_extra = (contract_violation,) if contract_violation else ()
+
+        def labeled(field: str) -> str:
+            # Diagnostics only (M1): explicit per-tier delimiters so
+            # output is attributable by eye, never parsed for verdicts.
+            parts = []
+            for o in outcomes:
+                parts.append(f"=== {o.name.upper()} {field} ===\n"
+                             f"{getattr(o, field.lower())}")
+            return "\n".join(parts)
 
         return VerificationResult(
             static_gate_passed=True,
-            tests_total=acc.get("total", 0) + (adv or {}).get("total", 0)
-            + (reg or {}).get("total", 0),
-            tests_passed=acc.get("passed", 0) + (adv or {}).get("passed", 0)
-            + (reg or {}).get("passed", 0),
-            tests_failed=acc.get("failed", 0) + (adv or {}).get("failed", 0)
-            + (reg or {}).get("failed", 0),
+            tests_total=sum(o.total for o in outcomes),
+            tests_passed=sum(o.passes for o in outcomes),
+            tests_failed=sum(o.failures for o in outcomes),
+            acceptance_total=acc.total,
+            acceptance_passes=acc.passes,
+            acceptance_failures=acc.failures,
+            adversarial_total=adv.total if adv else 0,
+            adversarial_passes=adv.passes if adv else 0,
+            adversarial_failures=adv.failures if adv else 0,
+            regression_total=reg.total if reg else 0,
+            regression_passes=reg.passes if reg else 0,
+            regression_failures=reg.failures if reg else 0,
             acceptance_passed=acceptance_passed,
             adversarial_passed=adversarial_passed,
             regression_passed=regression_passed,
+            contract_passed=contract_passed,
+            forbidden_constructs=forbidden_constructs,
+            static_analysis_complete=static_analysis_complete,
+            timed_out=bool(timed_out_tiers),
+            timed_out_tiers=timed_out_tiers,
+            runtime_ms=sum(o.runtime_ms for o in outcomes),
+            peak_memory_mb=max((o.peak_memory_mb for o in outcomes),
+                               default=0.0),
+            stdout=labeled("STDOUT"),
+            stderr=labeled("STDERR"),
+            exit_code=acc.exit_code,
             violations=tuple(failures[:20]) + contract_extra,
             failure_type=ftype,
-            **base,
         )
 
 

@@ -83,7 +83,8 @@ def test_partial_failure_cannot_be_accepted():
                                  regression_passed=True,
                                  tests_total=10, tests_passed=9,
                                  contract_passed=True,
-                                 static_analysis_complete=True)
+                                 static_analysis_complete=True,
+                                 acceptance_total=10, acceptance_passes=9)
     gate = hard_gate(partial)
     assert not gate.passed
     scorer = ScoringPolicy(ScoringWeights())
@@ -97,10 +98,13 @@ def test_partial_failure_cannot_be_accepted():
 def test_scoring_prefers_higher_pass_rate_as_guidance():
     scorer = ScoringPolicy(ScoringWeights())
     gate_fail = HardGateResult(gates={"requiredTests": False})
+    # M3: the compared "pass rate" is the acceptance rate.
     low = scorer.score(
-        VerificationResult(static_gate_passed=True, tests_total=100, tests_passed=2),
+        VerificationResult(static_gate_passed=True, tests_total=100, tests_passed=2,
+                           acceptance_total=100, acceptance_passes=2),
         gate_fail, depth=1)
     high = scorer.score(
-        VerificationResult(static_gate_passed=True, tests_total=100, tests_passed=99),
+        VerificationResult(static_gate_passed=True, tests_total=100, tests_passed=99,
+                           acceptance_total=100, acceptance_passes=99),
         gate_fail, depth=1)
     assert high.guidance > low.guidance

@@ -22,7 +22,10 @@ class ScoringPolicy:
         stagnated: bool = False,
     ) -> ComponentScores:
         w = self._w
-        correctness = verification.tests_pass_rate
+        # M3: correctness is the ACCEPTANCE rate. Adversarial outcomes
+        # answer "can we break it?", not "how correct is it?" — they
+        # have their own gate and must not dilute correctness.
+        correctness = verification.acceptance_pass_rate
         # Deterministic soft components: measured wall-time/memory vary run to
         # run (OS jitter), so they are excluded from scoring in v0.1 and
         # recorded as raw evidence only. Neutral 0.5 keeps weights stable.

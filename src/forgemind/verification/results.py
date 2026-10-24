@@ -67,8 +67,26 @@ class VerificationResult:
     peak_memory_mb: float = 0.0
     stdout: str = ""
     stderr: str = ""
+    # M3: the ACCEPTANCE subprocess's returncode, not an aggregate
+    # verdict. returncode == 0 with adversarial == FAIL is not a
+    # contradiction — different semantics.
     exit_code: int = -1
     timed_out: bool = False
+    # M3: names of timed-out tiers, in tier order. timed_out is True
+    # iff this is non-empty (any-tier timeout policy, explicit).
+    timed_out_tiers: tuple[str, ...] = field(default_factory=tuple)
+    # M3 per-tier counts. They sum exactly to tests_total/passed/failed
+    # (a crashed or timed-out tier contributes zeros). Field names use
+    # _passes/_failures because _passed is already the verdict bool.
+    acceptance_total: int = 0
+    acceptance_passes: int = 0
+    acceptance_failures: int = 0
+    adversarial_total: int = 0
+    adversarial_passes: int = 0
+    adversarial_failures: int = 0
+    regression_total: int = 0
+    regression_passes: int = 0
+    regression_failures: int = 0
     violations: tuple[str, ...] = field(default_factory=tuple)
     failure_type: str = ""  # FailureType value when failed, else ""
     # M1 structured gate inputs. contract_passed and
@@ -82,7 +100,15 @@ class VerificationResult:
 
     @property
     def tests_pass_rate(self) -> float:
+        # Summed all-tiers rate, kept for reporting compat. This is NOT
+        # correctness (M3): scoring uses acceptance_pass_rate.
         return self.tests_passed / self.tests_total if self.tests_total else 0.0
+
+    @property
+    def acceptance_pass_rate(self) -> float:
+        """M3: acceptance-tier pass rate — the correctness signal."""
+        return (self.acceptance_passes / self.acceptance_total
+                if self.acceptance_total else 0.0)
 
     @property
     def all_tiers_passed(self) -> bool:
