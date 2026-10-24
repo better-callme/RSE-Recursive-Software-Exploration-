@@ -61,7 +61,10 @@ _HARNESS_TEMPLATE = textwrap.dedent(
             except Exception:
                 details.append(name + ": " + traceback.format_exc(limit=3).splitlines()[-1])
         return {"total": total, "passed": passed, "failed": total - passed,
-                "details": details}
+                "details": details,
+                # M2: executed names, set-like by design (dir() yields
+                # each name once; sorted for deterministic evidence).
+                "executed": sorted({name for name, _ in tests})}
 
     def load(module_name, prefixes):
         import importlib
@@ -320,10 +323,24 @@ class Referee:
         adversarial_passed = (adv.get("failed", 1) == 0) if adv is not None else True
         regression_passed = (reg.get("failed", 1) == 0) if reg is not None else True
 
+        # M2: declared ⊆ executed. A test that was not collected and
+        # executed never counts. A missing "executed" field fails
+        # closed (missing = all declared). Import failure never reaches
+        # here — it yields no evidence and fails via the path above —
+        # so both collection-failure shapes fail acceptance.
+        declared = {t.test_id for t in self._spec.acceptance_tests}
+        executed = set(acc.get("executed") or [])
+        missing = sorted(declared - executed)
+        if missing:
+            acceptance_passed = False
+
         failures: list[str] = []
         ftype = ""
         if not acceptance_passed:
             ftype = FailureType.TEST_FAILURE.value
+            if missing:
+                failures.append(
+                    "Missing declared acceptance tests: " + ", ".join(missing))
             failures.extend(acc.get("details", []))
         if adversarial_expected and not adversarial_passed:
             ftype = ftype or FailureType.ADVERSARIAL_FAILURE.value

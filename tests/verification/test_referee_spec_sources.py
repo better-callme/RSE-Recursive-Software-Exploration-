@@ -58,10 +58,17 @@ def test_spec_without_sources_and_no_provider_raises_clearly():
 
 def test_attached_provider_is_an_explicit_override():
     referee = bare_referee(problem_spec("stats"))
+    # M2: the override source must still cover the spec's declared
+    # contract (all six stats tests) — the override is not exempt from
+    # the declared ⊆ executed check; it only replaces the source.
     referee.attach_test_provider(
-        lambda: {"anything.py": "def test_ok():\n    assert True\n"})
+        lambda: {"anything.py": "".join(
+            f"def {name}():\n    assert True\n"
+            for name in ("test_normal", "test_empty", "test_single",
+                         "test_negative", "test_duplicates",
+                         "test_large_values"))})
     # With the override, even the bad-mean solution "passes": precedence
     # is deliberate and visible at the construction site.
     v = referee.verify(state_with(BAD_MEAN))
     assert v.acceptance_passed
-    assert v.tests_total == 1
+    assert v.tests_total == 6
