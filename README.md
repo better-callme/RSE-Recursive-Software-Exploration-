@@ -181,6 +181,22 @@ read (there is no filesystem jail). AST filtering is defense-in-depth, not a
 sandbox boundary. Production deployments should execute candidates in
 container/gVisor/VM-grade isolation.
 
+The HTTP API adds abuse hardening, not a security boundary (H6): request
+bodies are capped at 1 MiB (enforced incrementally while reading,
+including chunked bodies), execution routes (`/api/run`, `/api/trace`,
+`/api/benchmark`) share a 4-permit concurrency cap and answer 503 when
+saturated, and the server binds `127.0.0.1` by default with an explicit
+warning on any non-loopback bind. Four is an intentionally conservative
+application-level concurrency cap for the current research workload; it
+is not a guarantee of OS-level resource containment. There is no
+process-count limit (the former `process_limit` setting was removed in
+H6 because it was never enforced).
+
+The API is intended for trusted/local use. Non-loopback binding does not
+provide authentication or secure remote execution. The eventual
+architecture — authentication, job admission, container/VM isolation —
+is a separate project.
+
 Known platform notes observed during development:
 
 - Setting `RLIMIT_NPROC` interacts badly with some container runtimes' cgroup

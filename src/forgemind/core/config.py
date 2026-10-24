@@ -26,7 +26,6 @@ class ResourceLimits:
     wall_timeout_seconds: float = 10.0
     cpu_limit_seconds: int = 8
     memory_limit_mb: int = 512
-    process_limit: int = 64
     max_output_bytes: int = 1_000_000
 
 
