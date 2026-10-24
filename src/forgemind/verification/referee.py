@@ -178,6 +178,11 @@ class Referee:
                 static_analysis_complete=static.analysis_complete,
                 violations=violations,
                 failure_type=ftype,
+                # M4: a syntax failure IS complete evidence (the file
+                # does not parse); otherwise completeness requires the
+                # full static analysis to have run.
+                evidence_complete=(not static.syntax_valid)
+                or static.analysis_complete,
             )
 
         # ---- dynamic tiers (M3): one subprocess per tier ------------------
@@ -434,6 +439,12 @@ class Referee:
             static_analysis_complete=static_analysis_complete,
             timed_out=bool(timed_out_tiers),
             timed_out_tiers=timed_out_tiers,
+            # M4: complete iff no tier timed out and every executed
+            # tier produced valid evidence. Vacuous tiers (not run)
+            # do not count as crashed; M2-missing counts as complete
+            # (the tier ran; the failure is deterministic).
+            evidence_complete=(not timed_out_tiers
+                               and not any(o.crashed for o in outcomes)),
             runtime_ms=sum(o.runtime_ms for o in outcomes),
             peak_memory_mb=max((o.peak_memory_mb for o in outcomes),
                                default=0.0),

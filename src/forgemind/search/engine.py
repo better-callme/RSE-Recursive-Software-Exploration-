@@ -236,6 +236,10 @@ class SearchEngine:
                         evidence=f"depth {node.depth} reached",
                     )
                     self._record_failure(node, rec)
+                    # M4: depth-exhaustion is a path/budget outcome, not
+                    # a state verdict — release the seen claim (never
+                    # un-closes an already-closed hash).
+                    self.frontier.reopen(node.state.content_hash)
                     continue
 
                 self._expand_node(node)
@@ -313,20 +317,26 @@ class SearchEngine:
                                 candidate=candidate.candidate_id,
                                 hash=new_state.content_hash[:12])
 
-            # Duplicate detection via content hash (Invariant 6).
+            # Duplicate detection via content hash (Invariant 6, M4):
+            # seen = live (always skip); closed = decided (skip unless
+            # reverify_duplicates opts into redundant re-verification).
             if not self.frontier.remember_state(new_state.content_hash):
-                self.metrics.duplicates += 1
-                self.history.append(EventType.DUPLICATE_DETECTED,
-                                    hash=new_state.content_hash[:12],
-                                    candidate=candidate.candidate_id)
-                rec = self.recovery.record(
-                    state_hash=new_state.content_hash,
-                    candidate_id=candidate.candidate_id,
-                    failure_type=FailureType.DUPLICATE_STATE, stage="search",
-                    evidence="state content hash already closed",
-                )
-                self._record_failure(node, rec)
-                continue
+                if not (self.frontier.is_closed(new_state.content_hash)
+                        and self.config.reverify_duplicates):
+                    self.metrics.duplicates += 1
+                    self.history.append(EventType.DUPLICATE_DETECTED,
+                                        hash=new_state.content_hash[:12],
+                                        candidate=candidate.candidate_id)
+                    rec = self.recovery.record(
+                        state_hash=new_state.content_hash,
+                        candidate_id=candidate.candidate_id,
+                        failure_type=FailureType.DUPLICATE_STATE, stage="search",
+                        evidence="state content hash already closed",
+                    )
+                    self._record_failure(node, rec)
+                    continue
+                # else: reverify_duplicates bypasses a CLOSED hash —
+                # fall through and create + verify again.
 
             child = SearchNode(
                 node_id=self.graph.next_node_id(),
@@ -365,11 +375,19 @@ class SearchEngine:
                                     hash=child.state.content_hash[:12],
                                     score=scores.total)
                 # Optimizer round on the verified solution (regression-checked).
+                original = child
                 if self.config.enable_optimizer:
                     child = self._optimize(child)
                 self.frontier.remove(child.node_id)
                 self.graph.update(child.with_updates(status=NodeStatus.ACCEPTED))
                 self._accepted = child
+                # M4: acceptance is definitive (passing all gates
+                # requires complete evidence) — close the final
+                # accepted node's hash, plus the original's when the
+                # optimizer replaced it (it too was decided).
+                self.frontier.close(child.state.content_hash)
+                if child is not original:
+                    self.frontier.close(original.state.content_hash)
                 return
 
             # Failed: record failure + recovery-driven follow-up.
@@ -382,6 +400,12 @@ class SearchEngine:
                     evidence="; ".join(verification.violations)[:500] or "gate failed",
                 )
                 self._record_failure(child, rec)
+                # M4: close only on an authoritative, complete verdict;
+                # incomplete evidence (crash/timeout) reopens instead.
+                if verification.evidence_complete:
+                    self.frontier.close(child.state.content_hash)
+                else:
+                    self.frontier.reopen(child.state.content_hash)
                 action = self.recovery.action_for(ftype)
                 if action in (RecoveryAction.CRITIC_ANALYSIS, RecoveryAction.BUILDER_REPAIR):
                     self._run_critic(child, verification)
@@ -480,11 +504,15 @@ class SearchEngine:
         """Set a twice-timed-out child aside (H4). Not accepted, not a
         failure: no FailureRecord, no recovery action, never admitted to
         the frontier — so C2 recovery cannot reinsert its parent on its
-        behalf and the run cannot loop on it. Its hash stays in the
-        run's closed set (loop prevention); re-admission happens only
-        under a new engine instance, whose frontier starts fresh."""
+        behalf. The quarantined NODE is never re-admitted within the
+        run (re-admission only under a new engine instance, whose
+        frontier starts fresh). M4: the HASH is not closed — a timeout
+        is not a state verdict — so a future NEW node with the same
+        hash may be verified again; loop prevention comes from the
+        per-node quarantine plus run budgets, not hash closure."""
         outcome = classify_verification(verification, retries_exhausted=True)
         assert outcome is VerificationOutcome.QUARANTINED
+        self.frontier.reopen(child.state.content_hash)
         self._quarantined.append(QuarantinedRecord(
             node_id=child.node_id, state_hash=child.state.content_hash,
             attempts=2))
@@ -534,6 +562,11 @@ class SearchEngine:
                 evidence="; ".join(adv_result.violations)[:500],
             )
             self._record_failure(node, rec)
+            # M4: this site settles its own verdict — close iff the
+            # re-verification's evidence was complete, else the hash
+            # stays seen (live node in the frontier).
+            if adv_result.evidence_complete:
+                self.frontier.close(node.state.content_hash)
         return ok
 
     def _run_critic(self, node: SearchNode, verification: VerificationResult | None) -> None:

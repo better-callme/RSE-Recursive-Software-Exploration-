@@ -109,6 +109,7 @@ class FrontierEntry:
     guidance: float
     depth: int
     creation_index: int
+    content_hash: str = ""
 
     def sort_key(self) -> tuple[float, int, int, str]:
         # Deterministic tie-breaking: score desc, depth asc, insertion order, id.
@@ -124,22 +125,48 @@ class SearchFrontier:
         self.capacity = capacity
         self.beam_width = beam_width
         self._entries: dict[str, FrontierEntry] = {}
+        # M4: seen and closed are different state-machine concepts.
+        # SEEN = currently-live/claimed hashes (registered at creation,
+        # released on every non-definitive terminal outcome). CLOSED =
+        # hashes with a definitive, complete state verdict (terminal
+        # for the run; only reverify_duplicates may re-verify them).
+        self._seen_hashes: set[str] = set()
         self._closed_hashes: set[str] = set()
         self._insert_counter = itertools.count(1)
+
+    @property
+    def seen_hashes(self) -> frozenset[str]:
+        return frozenset(self._seen_hashes)
 
     @property
     def closed_hashes(self) -> frozenset[str]:
         return frozenset(self._closed_hashes)
 
     def contains_state(self, content_hash: str) -> bool:
+        """Closed-only: is this state decided (M4)?"""
+        return content_hash in self._closed_hashes
+
+    def is_closed(self, content_hash: str) -> bool:
         return content_hash in self._closed_hashes
 
     def remember_state(self, content_hash: str) -> bool:
-        """Register a hash as seen. Returns False if already present."""
-        if content_hash in self._closed_hashes:
+        """Register a hash as seen. Returns False if already seen or
+        closed (the caller distinguishes via is_closed)."""
+        if (content_hash in self._seen_hashes
+                or content_hash in self._closed_hashes):
             return False
-        self._closed_hashes.add(content_hash)
+        self._seen_hashes.add(content_hash)
         return True
+
+    def close(self, content_hash: str) -> None:
+        """Record a definitive, complete verdict for a hash."""
+        self._seen_hashes.discard(content_hash)
+        self._closed_hashes.add(content_hash)
+
+    def reopen(self, content_hash: str) -> None:
+        """Release a seen hash (non-definitive outcome: quarantine,
+        depth-exhaustion, capacity-prune). Never un-closes."""
+        self._seen_hashes.discard(content_hash)
 
     def insert(self, node: SearchNode, guidance: float) -> bool:
         """Insert node if its state is novel. Returns False for duplicates."""
@@ -161,12 +188,16 @@ class SearchFrontier:
         entry = FrontierEntry(
             node_id=node.node_id, guidance=guidance, depth=node.depth,
             creation_index=node.creation_index,
+            content_hash=node.state.content_hash,
         )
         self._entries[node.node_id] = entry
         self.prune_to_capacity()
         return True
 
     def remove(self, node_id: str) -> FrontierEntry | None:
+        # Pure membership removal (selection, acceptance). Hash
+        # effects are the engine's job: acceptance closes separately,
+        # selection is not eviction.
         return self._entries.pop(node_id, None)
 
     def reinsert(self, node: SearchNode, guidance: float) -> bool:
@@ -181,6 +212,7 @@ class SearchFrontier:
         self._entries[node.node_id] = FrontierEntry(
             node_id=node.node_id, guidance=guidance, depth=node.depth,
             creation_index=node.creation_index,
+            content_hash=node.state.content_hash,
         )
         self.prune_to_capacity()
         return True
@@ -202,12 +234,17 @@ class SearchFrontier:
         keep, dropped = ordered[: self.capacity], ordered[self.capacity:]
         for e in dropped:
             del self._entries[e.node_id]
+            # M4: eviction releases the seen claim (unless closed —
+            # reopen never un-closes). A pruned incomplete-evidence
+            # node must not linger as "seen" forever.
+            self.reopen(e.content_hash)
         return tuple(dropped)
 
     def prune_guidance_below(self, threshold: float) -> tuple[FrontierEntry, ...]:
         drop = [e for e in self._entries.values() if e.guidance < threshold]
         for e in drop:
             del self._entries[e.node_id]
+            self.reopen(e.content_hash)
         return tuple(drop)
 
     def __len__(self) -> int:

@@ -75,6 +75,12 @@ class VerificationResult:
     # M3: names of timed-out tiers, in tier order. timed_out is True
     # iff this is non-empty (any-tier timeout policy, explicit).
     timed_out_tiers: tuple[str, ...] = field(default_factory=tuple)
+    # M4: True only when the verdict rests on authoritative, complete
+    # evidence (no timeout, no crashed tier; static path: syntax
+    # failure counts as complete, otherwise full analysis required).
+    # Fail-closed default: a result that does not prove completeness
+    # must not close a state hash (M4 close rule).
+    evidence_complete: bool = False
     # M3 per-tier counts. They sum exactly to tests_total/passed/failed
     # (a crashed or timed-out tier contributes zeros). Field names use
     # _passes/_failures because _passed is already the verdict bool.

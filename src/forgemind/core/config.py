@@ -60,7 +60,12 @@ class ForgeMindConfig:
     # Behaviour switches
     enable_optimizer: bool = True
     enable_adversarial_tier: bool = True
-    reverify_duplicates: bool = False  # explicit opt-in for redundant verification
+    # M4: opt-in redundant verification of DECIDED states only. When
+    # True, a re-proposed CLOSED hash is verified again (then
+    # re-closed); it never bypasses SEEN — a live, undecided duplicate
+    # is always skipped, so the frontier cannot hold two live copies
+    # of one state. Default False: decided states stay closed.
+    reverify_duplicates: bool = False
 
     logging_verbose: bool = False
 
