@@ -28,6 +28,10 @@ class StaticGateResult:
     forbidden_constructs: tuple[str, ...] = ()
     import_errors: tuple[str, ...] = ()
     violations: tuple[str, ...] = ()
+    # M1: False if any file failed to parse or safety enforcement was
+    # skipped — the safety verdict is then "not established", never
+    # "clean". The verifier always sets this explicitly.
+    analysis_complete: bool = False
 
     @property
     def passed(self) -> bool:
@@ -67,6 +71,14 @@ class VerificationResult:
     timed_out: bool = False
     violations: tuple[str, ...] = field(default_factory=tuple)
     failure_type: str = ""  # FailureType value when failed, else ""
+    # M1 structured gate inputs. contract_passed and
+    # static_analysis_complete are fail-closed (the referee always sets
+    # them; a hand-built result that omits them must not pass).
+    # forbidden_constructs is an absence claim (empty default, like
+    # violations) — meaningful only alongside analysis_complete=True.
+    contract_passed: bool = False
+    forbidden_constructs: tuple[str, ...] = field(default_factory=tuple)
+    static_analysis_complete: bool = False
 
     @property
     def tests_pass_rate(self) -> float:
@@ -74,13 +86,14 @@ class VerificationResult:
 
     @property
     def all_tiers_passed(self) -> bool:
-        return (
-            self.static_gate_passed
-            and self.acceptance_passed
-            and self.adversarial_passed
-            and self.regression_passed
-            and not self.violations
-        )
+        # The six canonical predicates (adversarial unconditional) plus
+        # clean diagnostics — a strict superset of the gate conjunction,
+        # so ACCEPT implies failed_gates() empty by construction. For
+        # referee-produced results the diagnostics clause is redundant
+        # (every non-empty violations list already implies a failed
+        # predicate); it only constrains hand-built results.
+        return (all(gate_predicates(self, adversarial_expected=True).values())
+                and not self.violations)
 
 
 @dataclass(frozen=True)
@@ -95,6 +108,27 @@ class HardGateResult:
 
     def failed_gates(self) -> tuple[str, ...]:
         return tuple(sorted(k for k, v in self.gates.items() if not v))
+
+
+def gate_predicates(result: "VerificationResult", *,
+                    adversarial_expected: bool = False) -> dict[str, bool]:
+    """The ONE canonical gate definition (M1). hard_gate,
+    all_tiers_passed and failed_gates() all derive from this — no gate
+    reads violation text, and no second definition of "passed" exists.
+    Security requires the safety analysis to have actually completed:
+    a parse failure or skipped analysis can never masquerade as a
+    clean bill of health via an empty forbidden_constructs."""
+    return {
+        "syntax": result.static_gate_passed,
+        "contract": result.contract_passed,
+        "requiredTests": result.acceptance_passed,
+        "security": (result.static_analysis_complete
+                     and not result.forbidden_constructs
+                     and not result.timed_out),
+        "regression": result.regression_passed,
+        "adversarial": (result.adversarial_passed
+                        if adversarial_expected else True),
+    }
 
 
 @dataclass(frozen=True)

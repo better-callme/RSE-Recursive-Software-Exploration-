@@ -20,6 +20,7 @@ this channel; that is the future container backend's job.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import secrets
@@ -30,7 +31,7 @@ from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
 
 from forgemind.core.config import ForgeMindConfig
-from forgemind.core.problem import ProblemSpec
+from forgemind.core.problem import ProblemSpec, resolve_entry_point
 from forgemind.core.proposal import AttackTestProposal
 from forgemind.core.state import CodebaseState
 from forgemind.recovery.failure import FailureType
@@ -39,6 +40,7 @@ from forgemind.verification.results import (
     ExecutionResult,
     HardGateResult,
     VerificationResult,
+    gate_predicates,
 )
 from forgemind.verification.static import StaticVerifier
 
@@ -135,12 +137,23 @@ class Referee:
         """Full staged verification of one state."""
         # ---- Tier 1: static -------------------------------------------------
         static = self._static.verify(dict(state.files))
+        # ---- Tier 1b: contract (M1) ----------------------------------------
+        # Computed for every result, before branching, so the contract
+        # verdict rides along on all paths (it never short-circuits the
+        # run — dynamic evidence is still collected).
+        contract_passed, contract_violation = self._check_contract(state)
         if not static.passed:
             ftype = FailureType.SYNTAX_ERROR.value if not static.syntax_valid \
                 else FailureType.CONTRACT_VIOLATION.value
+            violations = tuple(static.violations)
+            if contract_violation is not None:
+                violations += (contract_violation,)
             return VerificationResult(
                 static_gate_passed=False,
-                violations=tuple(static.violations),
+                contract_passed=contract_passed,
+                forbidden_constructs=tuple(static.forbidden_constructs),
+                static_analysis_complete=static.analysis_complete,
+                violations=violations,
                 failure_type=ftype,
             )
 
@@ -186,7 +199,12 @@ class Referee:
             )
             return self._interpret(result, result_path=result_path, nonce=nonce,
                                    adversarial_expected=bool(attack_tests),
-                                   regression_expected=bool(regression_tests))
+                                   regression_expected=bool(regression_tests),
+                                   contract_passed=contract_passed,
+                                   contract_violation=contract_violation,
+                                   forbidden_constructs=tuple(
+                                       static.forbidden_constructs),
+                                   static_analysis_complete=static.analysis_complete)
         finally:
             cleanup = getattr(self._env, "cleanup", None)
             if cleanup is not None:
@@ -230,6 +248,29 @@ class Referee:
         sections = payload.get("sections")
         return sections if isinstance(sections, dict) else None
 
+    def _check_contract(self, state: CodebaseState
+                        ) -> tuple[bool, str | None]:
+        """Referee-side interface check (M1): does the state actually
+        define the spec's entry function? The transition engine checks
+        proposals; this checks resulting states, including states that
+        never went through a transition. Returns (passed, violation)."""
+        try:
+            entry = resolve_entry_point(self._spec)
+        except ValueError as exc:
+            return False, f"contract: spec names no usable entry point: {exc}"
+        for path, content in sorted(state.files.items()):
+            if not path.endswith(".py"):
+                continue
+            try:
+                tree = ast.parse(content)
+            except SyntaxError:
+                continue  # syntax tier already fails these
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                        and node.name == entry:
+                    return True, None
+        return False, f"contract: entry function {entry!r} not defined in state"
+
     def _interpret(
         self,
         exec_result: ExecutionResult,
@@ -238,6 +279,10 @@ class Referee:
         nonce: str,
         adversarial_expected: bool,
         regression_expected: bool,
+        contract_passed: bool,
+        contract_violation: str | None,
+        forbidden_constructs: tuple[str, ...],
+        static_analysis_complete: bool,
     ) -> VerificationResult:
         base = dict(
             runtime_ms=exec_result.runtime_ms,
@@ -246,15 +291,21 @@ class Referee:
             stderr=exec_result.stderr[-4000:],
             exit_code=exec_result.exit_code,
             timed_out=exec_result.timed_out,
+            contract_passed=contract_passed,
+            forbidden_constructs=forbidden_constructs,
+            static_analysis_complete=static_analysis_complete,
         )
+        contract_extra = (contract_violation,) if contract_violation else ()
         if exec_result.timed_out:
             return VerificationResult(static_gate_passed=True, failure_type=
-                                      FailureType.TIMEOUT.value, **base)
+                                      FailureType.TIMEOUT.value,
+                                      violations=contract_extra, **base)
         data = self._read_evidence(result_path, nonce)
         if data is None:
             return VerificationResult(
                 static_gate_passed=True,
-                violations=("harness produced no valid structured result",),
+                violations=("harness produced no valid structured result",)
+                + contract_extra,
                 failure_type=FailureType.IMPORT_ERROR.value
                 if "ImportError" in exec_result.stderr or "ModuleNotFoundError" in exec_result.stderr
                 else FailureType.INTERNAL_ERROR.value,
@@ -292,7 +343,7 @@ class Referee:
             acceptance_passed=acceptance_passed,
             adversarial_passed=adversarial_passed,
             regression_passed=regression_passed,
-            violations=tuple(failures[:20]),
+            violations=tuple(failures[:20]) + contract_extra,
             failure_type=ftype,
             **base,
         )
@@ -304,14 +355,8 @@ def hard_gate(result: VerificationResult, *,
     ∧ adversarial (adversarial only when the caller expected that tier's
     evidence, C3 — callers that never ran attack tests, e.g. the baseline's
     first pass, are unaffected)."""
-    gates = {
-        "syntax": result.static_gate_passed,
-        "contract": not any("interface constraint" in v or "forbidden" in v
-                            for v in result.violations),
-        "requiredTests": result.acceptance_passed,
-        "security": not any("forbidden call" in v or "forbidden import" in v
-                            for v in result.violations) and not result.timed_out,
-        "regression": result.regression_passed,
-        "adversarial": result.adversarial_passed if adversarial_expected else True,
-    }
-    return HardGateResult(gates=gates)
+    # Pure decision function (M1): the canonical predicates from
+    # results.gate_predicates — no analysis here, and no violation text
+    # is ever inspected.
+    return HardGateResult(gates=gate_predicates(
+        result, adversarial_expected=adversarial_expected))

@@ -13,6 +13,10 @@ def _result(**kw) -> VerificationResult:
         regression_passed=True,
         tests_total=6,
         tests_passed=6,
+        # M1: fixtures must state their structured verdicts explicitly —
+        # the fail-closed defaults (False) would otherwise flip these.
+        contract_passed=True,
+        static_analysis_complete=True,
     )
     base.update(kw)
     return VerificationResult(**base)

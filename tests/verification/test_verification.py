@@ -61,14 +61,17 @@ def test_forbidden_constructs_flagged(referee):
 
 def test_hard_gate_requires_all_gates():
     ok = VerificationResult(static_gate_passed=True, acceptance_passed=True,
-                            regression_passed=True, tests_total=6, tests_passed=6)
+                            regression_passed=True, tests_total=6, tests_passed=6,
+                            contract_passed=True, static_analysis_complete=True)
     gate = hard_gate(ok)
     assert gate.passed
 
     failing_tests = VerificationResult(static_gate_passed=True,
                                        acceptance_passed=False,
                                        regression_passed=True,
-                                       tests_total=6, tests_passed=5)
+                                       tests_total=6, tests_passed=5,
+                                       contract_passed=True,
+                                       static_analysis_complete=True)
     gate = hard_gate(failing_tests)
     assert not gate.passed
     assert "requiredTests" in gate.failed_gates()
@@ -78,7 +81,9 @@ def test_partial_failure_cannot_be_accepted():
     """90% pass rate must still fail the hard gate."""
     partial = VerificationResult(static_gate_passed=True, acceptance_passed=False,
                                  regression_passed=True,
-                                 tests_total=10, tests_passed=9)
+                                 tests_total=10, tests_passed=9,
+                                 contract_passed=True,
+                                 static_analysis_complete=True)
     gate = hard_gate(partial)
     assert not gate.passed
     scorer = ScoringPolicy(ScoringWeights())
