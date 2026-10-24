@@ -5,6 +5,7 @@ Agents propose; this engine alone decides. See spec §57.
 
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass, field
 from typing import Mapping, Sequence
@@ -29,7 +30,9 @@ from forgemind.core.proposal import (
     Candidate,
     CodePatchProposal,
     CritiqueProposal,
+    IdAllocator,
     Proposal,
+    _current_allocator,
 )
 from forgemind.core.state import CodebaseState
 from forgemind.core.transition import TransitionEngine
@@ -49,13 +52,18 @@ from forgemind.search.node import (
 from forgemind.search.stagnation import StagnationDetector
 from forgemind.verification.referee import Referee, hard_gate
 from forgemind.verification.scoring import ScoringPolicy
-from forgemind.verification.results import VerificationResult
+from forgemind.verification.results import (
+    VerificationOutcome,
+    VerificationResult,
+    classify_verification,
+)
 
 
 @dataclass(frozen=True)
 class TerminationInfo:
-    reason: str  # goal_accepted | frontier_empty | max_depth | max_nodes |
-    #              max_verifications | max_agent_calls | wall_clock | fatal
+    reason: str  # goal_accepted | frontier_empty | quarantined | max_depth |
+    #              max_nodes | max_verifications | max_agent_calls |
+    #              wall_clock | fatal
     accepted_node_id: str | None = None
     detail: str = ""
 
@@ -125,9 +133,25 @@ class SearchEngine:
         self._repair_mode: set[str] = set()
         self._accepted: SearchNode | None = None
         self._regression_tests: dict[str, str] = {}
+        # H4: engine-local RNG (never the global random module) and the
+        # per-run quarantine set (nodes set aside for slowness, not failure).
+        self._rng = random.Random(self.config.random_seed)
+        self._quarantined: list[QuarantinedRecord] = []
 
     # ------------------------------------------------------------------
     def run(self) -> "SearchResult":
+        # H4: fresh per-run ID allocator, seed-derived start (seed 0
+        # preserves the legacy sequence). Installed for this run only and
+        # reset in finally; ContextVar is per-thread, so concurrent
+        # engines never interleave IDs.
+        allocator = IdAllocator(start=self.config.random_seed % 10**8)
+        token = _current_allocator.set(allocator)
+        try:
+            return self._run_once()
+        finally:
+            _current_allocator.reset(token)
+
+    def _run_once(self) -> "SearchResult":
         started = time.monotonic()
         root_state = CodebaseState(spec_hash=self.spec.spec_hash, files={})
         root = SearchNode(
@@ -147,6 +171,7 @@ class SearchEngine:
             history=self.history,
             metrics=self.metrics,
             elapsed_seconds=time.monotonic() - started,
+            quarantined=tuple(self._quarantined),
         )
         self.history.append(
             EventType.SEARCH_TERMINATED, reason=termination.reason,
@@ -160,7 +185,7 @@ class SearchEngine:
             return TerminationInfo("goal_accepted", self._accepted.node_id)
         m = self.metrics
         if len(self.frontier) == 0 and m.nodes_explored > 0:
-            return TerminationInfo("frontier_empty")
+            return self._empty_frontier_termination()
         return self._hard_budget_exceeded(started)
 
     def _hard_budget_exceeded(self, started: float) -> TerminationInfo | None:
@@ -188,7 +213,7 @@ class SearchEngine:
             # shallowest frontier depth before any deeper node is touched.
             beam = self.strategy.select_beam(self.frontier, self.graph)
             if not beam:
-                return TerminationInfo("frontier_empty")
+                return self._empty_frontier_termination()
 
             for node in beam:
                 if self._accepted is not None:
@@ -314,6 +339,15 @@ class SearchEngine:
             )
             self.graph.add(child)
             verification = self._verify(child)
+            # H4: timeout is inconclusive, not failure. Retry once with a
+            # fresh subprocess (a new referee.verify() call); a second
+            # timeout quarantines the child — no gate, no failure record,
+            # no recovery action.
+            if verification.timed_out:
+                verification = self._verify(child)
+                if verification.timed_out:
+                    self._quarantine(child, verification)
+                    continue
             gate = hard_gate(verification)
             repeated = self._failure_counts.get(child.state.content_hash, 0)
             scores = self.scorer.score(verification, gate, depth=child.depth,
@@ -441,6 +475,32 @@ class SearchEngine:
         return proposals
 
     # ------------------------------------------------------------------
+    def _quarantine(self, child: SearchNode,
+                    verification: VerificationResult) -> None:
+        """Set a twice-timed-out child aside (H4). Not accepted, not a
+        failure: no FailureRecord, no recovery action, never admitted to
+        the frontier — so C2 recovery cannot reinsert its parent on its
+        behalf and the run cannot loop on it. Its hash stays in the
+        run's closed set (loop prevention); re-admission happens only
+        under a new engine instance, whose frontier starts fresh."""
+        outcome = classify_verification(verification, retries_exhausted=True)
+        assert outcome is VerificationOutcome.QUARANTINED
+        self._quarantined.append(QuarantinedRecord(
+            node_id=child.node_id, state_hash=child.state.content_hash,
+            attempts=2))
+        self.graph.update(child.with_updates(
+            verification=verification, status=NodeStatus.QUARANTINED))
+        self.history.append(EventType.QUARANTINED, node=child.node_id,
+                            hash=child.state.content_hash[:12],
+                            attempts=2, outcome=outcome.value)
+
+    def _empty_frontier_termination(self) -> TerminationInfo:
+        """Frontier empty: honest reason — quarantined when nodes were set
+        aside for slowness rather than rejected, else frontier_empty."""
+        if self._quarantined:
+            return TerminationInfo("quarantined")
+        return TerminationInfo("frontier_empty")
+
     def _verify(self, node: SearchNode) -> VerificationResult:
         self.history.append(EventType.VERIFICATION_STARTED, node=node.node_id)
         self.metrics.verifications += 1
@@ -606,12 +666,23 @@ def _default_env():
 
 
 @dataclass(frozen=True)
+class QuarantinedRecord:
+    """A node set aside for slowness, not failure (H4). attempts is the
+    number of timed-out verification attempts (1 initial + 1 retry)."""
+
+    node_id: str
+    state_hash: str
+    attempts: int = 2
+
+
+@dataclass(frozen=True)
 class SearchResult:
     termination: TerminationInfo
     graph: SearchGraph
     history: History
     metrics: SearchMetrics
     elapsed_seconds: float
+    quarantined: tuple[QuarantinedRecord, ...] = ()
 
     @property
     def accepted_node(self) -> SearchNode | None:

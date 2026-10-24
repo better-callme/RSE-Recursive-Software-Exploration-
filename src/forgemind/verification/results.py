@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Mapping
 
 
@@ -107,6 +108,30 @@ class ComponentScores:
     search_cost: float
     guidance: float
     total: float  # meaningful only when hard_pass
+
+
+class VerificationOutcome(str, Enum):
+    """First-class verification outcome (H4). A timeout is inconclusive,
+    not failure; only retries-exhausted timeouts quarantine. Downstream
+    code matches on this enum, not on strings."""
+
+    PASS = "PASS"
+    FAIL = "FAIL"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    QUARANTINED = "QUARANTINED"
+
+
+def classify_verification(
+    result: VerificationResult, *, retries_exhausted: bool,
+) -> VerificationOutcome:
+    """Map a verification result to its outcome. A timeout maps by retry
+    state (INCONCLUSIVE while a retry remains, QUARANTINED once retries
+    are exhausted); anything else maps by whether all tiers passed."""
+    if result.timed_out:
+        return (VerificationOutcome.QUARANTINED if retries_exhausted
+                else VerificationOutcome.INCONCLUSIVE)
+    return (VerificationOutcome.PASS if result.all_tiers_passed
+            else VerificationOutcome.FAIL)
 
 
 def _raise_frozen_res(self: object, name: str, value: object) -> None:

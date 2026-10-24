@@ -144,11 +144,9 @@ def test_history_records_complete_story(spec, referee):
 
 
 def test_determinism_same_config_same_outcome(spec):
-    """Two runs with fresh engines must produce identical decision traces."""
+    """Two runs with fresh engines must produce identical decision traces
+    — with no manual ID reset (H4: each run installs its own allocator)."""
     def run_once():
-        from forgemind.core.proposal import reset_id_counter
-
-        reset_id_counter(0)
         cfg = ForgeMindConfig(random_seed=7)
         eng = SearchEngine(spec, cfg, referee=make_referee(spec, cfg),
                            recovery=RecoveryPolicy())

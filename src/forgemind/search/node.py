@@ -20,6 +20,7 @@ class NodeStatus(str, Enum):
     EXHAUSTED = "EXHAUSTED"
     CYCLE_DEAD_END = "CYCLE_DEAD_END"
     STAGNATED = "STAGNATED"
+    QUARANTINED = "QUARANTINED"
 
 
 @dataclass(frozen=True)

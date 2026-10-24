@@ -4,20 +4,45 @@ them into Candidates; only TransitionEngine turns Candidates into new states."""
 from __future__ import annotations
 
 import dataclasses
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Mapping
 
-_id_source = [0]  # process-wide monotonic source; resettable for reproducibility
+
+class IdAllocator:
+    """Per-run ID allocator (H4). Owns its own counter, so separate
+    allocators never interleave — even across threads, since each run
+    installs its own allocator in its own context (see engine.run())."""
+
+    def __init__(self, start: int = 0) -> None:
+        self._next = start
+
+    def next_id(self, prefix: str) -> str:
+        self._next += 1
+        return f"{prefix}-{self._next:08d}"
+
+    def reset(self, start: int = 0) -> None:
+        self._next = start
+
+
+# Fallback for proposal/candidate construction outside a run (unit tests,
+# direct construction): the legacy process-wide allocator. Inside a run
+# the engine installs a per-run allocator (see SearchEngine.run()).
+_legacy_allocator = IdAllocator()
+_current_allocator: ContextVar[IdAllocator | None] = ContextVar(
+    "forgemind_id_allocator", default=None)
 
 
 def reset_id_counter(start: int = 0) -> None:
-    """Reset proposal/candidate ID allocation (for reproducible experiments)."""
-    _id_source[0] = start
+    """Deprecated shim: reset the ambient allocator. Outside a run this
+    is the legacy global; inside a run the engine owns the allocator and
+    calling this mid-run is unsupported."""
+    (_current_allocator.get() or _legacy_allocator).reset(start)
 
 
 def _next_id(prefix: str) -> str:
-    _id_source[0] += 1
-    return f"{prefix}-{_id_source[0]:08d}"
+    allocator = _current_allocator.get() or _legacy_allocator
+    return allocator.next_id(prefix)
 
 
 @dataclass(frozen=True)
