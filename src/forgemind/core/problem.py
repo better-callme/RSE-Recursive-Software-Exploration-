@@ -83,6 +83,32 @@ class ProblemSpec:
         return tuple(t.test_id for t in self.acceptance_tests)
 
 
+def resolve_entry_point(spec: ProblemSpec) -> str:
+    """The ONE canonical entry-point resolution (H5).
+
+    The entry function is the sole key of the spec's
+    ``interface_constraints``. Every agent calls this on
+    ``projection.spec``; no agent parses constraints itself, and no agent
+    falls back to a hardcoded function name.
+
+    Fail-closed: a spec naming no entry point, or several, raises
+    ``ValueError`` instead of silently receiving a stats-shaped
+    architecture. A single key with an *unknown* name is valid — any name
+    must work; that is the point of H5.
+    """
+    keys = sorted(spec.interface_constraints)
+    if not keys:
+        raise ValueError(
+            f"spec {spec.problem_id!r} names no entry point: "
+            "interface_constraints is empty"
+        )
+    if len(keys) > 1:
+        raise ValueError(
+            f"spec {spec.problem_id!r} names ambiguous entry points: {keys}"
+        )
+    return keys[0]
+
+
 # Explicitly freeze dataclass mutation surface, including object.__setattr__.
 def _raise_frozen(self: object, name: str, value: object) -> None:
     raise dataclasses.FrozenInstanceError(

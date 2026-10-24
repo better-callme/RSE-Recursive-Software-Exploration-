@@ -45,14 +45,20 @@ def _problem_spec(name: str):
     return problem_spec(name)
 
 
-def _make_engine(spec, config: ForgeMindConfig) -> SearchEngine:
+def _make_engine(spec, config: ForgeMindConfig, kit=None) -> SearchEngine:
     env = SubprocessExecutionEnvironment(config.resources)
     # Test sources come from spec.test_sources (H2); no provider wiring
     # is needed here — the referee reads them from the spec.
     referee = Referee(spec, env, config)
+    # H5: when the caller resolved a kit, pass its agents explicitly;
+    # otherwise the engine's legacy defaults apply (stats family).
+    agents = {}
+    if kit is not None:
+        agents = {"architect": kit.architect(), "builder": kit.builder(),
+                  "critic": kit.critic(), "optimizer": kit.optimizer()}
     return SearchEngine(
         spec, config, referee=referee,
-        recovery=RecoveryPolicy(), history=History(),
+        recovery=RecoveryPolicy(), history=History(), **agents,
     )
 
 
@@ -61,7 +67,9 @@ def api_run(problem: str = "stats", seed: int = 0,
     spec = _problem_spec(problem)
     config = ForgeMindConfig(random_seed=seed, beam_width=beam_width,
                              max_depth=max_depth)
-    engine = _make_engine(spec, config)
+    from forgemind.benchmark.kits import mock_kit_for
+
+    engine = _make_engine(spec, config, kit=mock_kit_for(problem))
     result = engine.run()
     record = dataclasses.asdict(record_from_search(spec.problem_id, result))
     node = result.accepted_node

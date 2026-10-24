@@ -59,12 +59,17 @@ def _engine_for(args) -> tuple:
         max_depth=getattr(args, "max_depth", 6),
     )
     runner = ExperimentRunner(config)
+    from forgemind.benchmark.kits import mock_kit_for
     from forgemind.search.engine import SearchEngine
     from forgemind.recovery.failure import RecoveryPolicy
     from forgemind.core.history import History
 
+    # H5: the call site resolves the kit and passes explicit agents; the
+    # engine itself never selects a problem-specific agent set.
+    kit = mock_kit_for(args.problem)
     engine = SearchEngine(spec, config, referee=runner._referee(spec),
-                          builder=problem_builder(args.problem),
+                          architect=kit.architect(), builder=kit.builder(),
+                          critic=kit.critic(), optimizer=kit.optimizer(),
                           recovery=RecoveryPolicy(), history=History())
     return runner, engine
 

@@ -100,18 +100,20 @@ class ExperimentRunner:
         tagged with the registry name in ``extra["suite_problem"]`` so arms
         sharing a ProblemSpec stay distinguishable.
         """
-        from forgemind.benchmark.problems import problem_builder, problem_spec
+        from forgemind.benchmark.kits import mock_kit_for
+        from forgemind.benchmark.problems import problem_spec
 
         names = list(problem_names)
         specs = [problem_spec(n) for n in names]
-        builders: list[MockBuilder] = [problem_builder(n) for n in names]
+        kits = [mock_kit_for(n) for n in names]
 
         fm_records = []
-        for name, spec, builder in zip(names, specs, builders):
+        for name, spec, kit in zip(names, specs, kits):
             engine = SearchEngine(
                 spec, self.config,
                 referee=self._referee(spec),
-                builder=builder,
+                architect=kit.architect(), builder=kit.builder(),
+                critic=kit.critic(), optimizer=kit.optimizer(),
                 recovery=RecoveryPolicy(),
                 history=History(),
             )
@@ -122,9 +124,9 @@ class ExperimentRunner:
             ))
 
         base_records = []
-        for name, spec, builder in zip(names, specs, builders):
+        for name, spec, kit in zip(names, specs, kits):
             outcome = run_baseline(spec, self._referee(spec), self.config,
-                                   builder=builder)
+                                   builder=kit.builder(), critic=kit.critic())
             pass_rate = 0.0
             if outcome.node is not None and outcome.node.verification is not None:
                 pass_rate = outcome.node.verification.tests_pass_rate
