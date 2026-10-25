@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from forgemind.core.proposal import CodePatchProposal
@@ -76,3 +78,39 @@ def test_dependency_policy(engine):
         dependency_changes={"requests": "2.0"},  # not in allowlist
     ))
     assert not r.ok
+
+
+def test_empty_allowlist_denies_new_deps_m12(engine):
+    # M12: () means NO new dependencies. Pre-fix the truthiness guard
+    # skipped the check for () and this patch was allowed (it satisfies
+    # the interface constraint, so dependency policy is the deciding
+    # rejection — unlike test_dependency_policy above, whose patch is
+    # rejected by the interface constraint regardless of policy).
+    spec = dataclasses.replace(engine.spec, dependency_constraints=())
+    eng = TransitionEngine(spec)
+    root = make_root_state(spec)
+    r = eng.apply(root, CodePatchProposal(
+        created_files={"solution.py": GOOD},
+        dependency_changes={"requests": "2.0"},
+    ))
+    assert not r.ok and r.violation == "DEPENDENCY_POLICY"
+
+
+def test_allowlisted_dependency_permitted_m12(engine):
+    spec = dataclasses.replace(engine.spec, dependency_constraints=("requests",))
+    eng = TransitionEngine(spec)
+    root = make_root_state(spec)
+    r = eng.apply(root, CodePatchProposal(
+        created_files={"solution.py": GOOD},
+        dependency_changes={"requests": "2.0"},
+    ))
+    assert r.ok
+
+
+def test_empty_allowlist_without_dep_changes_ok_m12(engine):
+    # Guard: () forbids new dependencies, not dependency-free patches.
+    spec = dataclasses.replace(engine.spec, dependency_constraints=())
+    eng = TransitionEngine(spec)
+    root = make_root_state(spec)
+    r = eng.apply(root, CodePatchProposal(created_files={"solution.py": GOOD}))
+    assert r.ok

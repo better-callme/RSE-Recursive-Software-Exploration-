@@ -140,9 +140,14 @@ class TransitionEngine:
         }
         final_files = self._compose_files(state, created, modified, deleted)
 
-        # Dependency policy: only allowed deps may be added.
+        # Dependency policy: only allowed deps may be added. M12: no
+        # truthiness guard — an empty allowlist means NO new
+        # dependencies, not "allow everything". The old
+        # `constraints and dep not in constraints` skipped the check
+        # entirely for (), which is the wrong default for a fail-closed
+        # system. A spec that needs a dependency lists it by name.
         for dep, version in patch.dependency_changes.items():
-            if self._spec.dependency_constraints and dep not in self._spec.dependency_constraints:
+            if dep not in self._spec.dependency_constraints:
                 return TransitionResult(False, None,
                                         f"dependency not allowed by policy: {dep}",
                                         "DEPENDENCY_POLICY")
