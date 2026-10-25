@@ -9,6 +9,9 @@ from typing import Mapping
 
 class FailureType(str, Enum):
     CONTRACT_VIOLATION = "CONTRACT_VIOLATION"
+    # F1: the engine maps PROBLEM_SPEC_MUTATION transition rejections to
+    # this member; without it the engine crashed with AttributeError.
+    PROBLEM_SPEC_MUTATION = "PROBLEM_SPEC_MUTATION"
     INVALID_PROPOSAL = "INVALID_PROPOSAL"
     SYNTAX_ERROR = "SYNTAX_ERROR"
     IMPORT_ERROR = "IMPORT_ERROR"
@@ -38,6 +41,10 @@ class RecoveryAction(Enum):
 
 DEFAULT_RECOVERY_MAP: Mapping[FailureType, RecoveryAction] = {
     FailureType.CONTRACT_VIOLATION: RecoveryAction.PRUNE,
+    # F1: a spec-mutation proposal carries no repair information and must
+    # not re-expand its branch (PRUNE is not a re-expand action). The row
+    # is load-bearing: action_for() KeyErrors on unmapped types.
+    FailureType.PROBLEM_SPEC_MUTATION: RecoveryAction.PRUNE,
     FailureType.INVALID_PROPOSAL: RecoveryAction.BUILDER_RETRY,
     FailureType.SYNTAX_ERROR: RecoveryAction.BUILDER_RETRY,
     FailureType.IMPORT_ERROR: RecoveryAction.BUILDER_RETRY,
