@@ -366,7 +366,10 @@ class SearchEngine:
             child = child.with_updates(
                 verification=verification,
                 scores=scores,
-                status=(NodeStatus.ACCEPTED if gate.passed else NodeStatus.REJECTED),
+                # M5: gate pass is not acceptance — the adversarial
+                # gate below still has to pass, and only the accept
+                # path may grant ACCEPTED.
+                status=(NodeStatus.GATE_PASSED if gate.passed else NodeStatus.REJECTED),
             )
             self.graph.update(child)
 
@@ -379,6 +382,8 @@ class SearchEngine:
                 if self.config.enable_optimizer:
                     child = self._optimize(child)
                 self.frontier.remove(child.node_id)
+                # M5: this promotion is the SOLE place a search child
+                # becomes ACCEPTED (final winner only).
                 self.graph.update(child.with_updates(status=NodeStatus.ACCEPTED))
                 self._accepted = child
                 # M4: acceptance is definitive (passing all gates
@@ -607,7 +612,9 @@ class SearchEngine:
         scores = self.scorer.score(verification, gate, depth=opt_node.depth)
         opt_node = opt_node.with_updates(
             verification=verification, scores=scores,
-            status=NodeStatus.ACCEPTED if gate.passed else NodeStatus.REJECTED,
+            # M5: same rule as _expand_node — gate pass is
+            # GATE_PASSED; the caller promotes the delivered node.
+            status=NodeStatus.GATE_PASSED if gate.passed else NodeStatus.REJECTED,
         )
         self.graph.update(opt_node)
         if not gate.passed:

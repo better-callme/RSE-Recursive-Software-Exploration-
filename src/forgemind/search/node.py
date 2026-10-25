@@ -17,6 +17,9 @@ class NodeStatus(str, Enum):
     VALID = "VALID"
     REJECTED = "REJECTED"
     ACCEPTED = "ACCEPTED"
+    # M5: hard gate passed, final acceptance not yet established.
+    # ACCEPTED is terminal: the run's final winner only.
+    GATE_PASSED = "GATE_PASSED"
     EXHAUSTED = "EXHAUSTED"
     CYCLE_DEAD_END = "CYCLE_DEAD_END"
     STAGNATED = "STAGNATED"
