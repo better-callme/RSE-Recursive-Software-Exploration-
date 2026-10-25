@@ -122,6 +122,10 @@ class SearchEngine:
         self._branch_keys: dict[str, str] = {}
         self.metrics = SearchMetrics()
         self._attack_tests: list[AttackTestProposal] = []
+        # M7: the attack set each node was verified against, keyed by
+        # node id. The cached verdict belongs to that specific node, and
+        # reuse requires the set to be identical — see _attack_set().
+        self._verify_attack_sets: dict[str, frozenset[tuple[str, str]]] = {}
         self._critiques: tuple[CritiqueProposal, ...] = ()
         self._architecture = None
         self._failure_counts: dict[str, int] = {}
@@ -540,6 +544,13 @@ class SearchEngine:
             return TerminationInfo("quarantined")
         return TerminationInfo("frontier_empty")
 
+    def _attack_set(self) -> frozenset[tuple[str, str]]:
+        """M7: the attack-set version — name + code is the execution
+        identity of an attack. Any addition, removal, or content change
+        yields a different set, so reuse below is exact, not heuristic."""
+        return frozenset((a.test_name, a.test_code)
+                         for a in self._attack_tests)
+
     def _verify(self, node: SearchNode) -> VerificationResult:
         self.history.append(EventType.VERIFICATION_STARTED, node=node.node_id)
         self.metrics.verifications += 1
@@ -547,6 +558,9 @@ class SearchEngine:
             node.state, attack_tests=self._attack_tests,
             regression_tests=self._regression_tests,
         )
+        # M7: record which attack set this result was produced against,
+        # so the gate can tell reuse from invalidation.
+        self._verify_attack_sets[node.node_id] = self._attack_set()
         self.history.append(EventType.VERIFICATION_COMPLETED, node=node.node_id,
                             passed=result.acceptance_passed,
                             tests=f"{result.tests_passed}/{result.tests_total}")
@@ -560,23 +574,40 @@ class SearchEngine:
             self._run_critic(node, node.verification)
         if not self._attack_tests:
             return True
-        self.metrics.verifications += 1
-        adv_result = self.referee.verify(node.state,
-                                         attack_tests=self._attack_tests)
-        ok = adv_result.adversarial_passed
+        # M7: reuse the stored verification's adversarial verdict only
+        # when the attack set is identical to the set it was verified
+        # against. The critic may have added attacks since _verify ran
+        # (the no-attacks-yet case), in which case re-verification is
+        # genuine and required. A missing or timed-out stored result
+        # also falls back to re-verification (defensive; timeouts
+        # quarantine before the gate, so this is unreachable via run()).
+        verification = node.verification
+        if (verification is not None and not verification.timed_out
+                and self._verify_attack_sets.get(node.node_id)
+                == self._attack_set()):
+            ok = verification.adversarial_passed
+            violations = verification.violations
+            complete = verification.evidence_complete
+        else:
+            self.metrics.verifications += 1
+            adv_result = self.referee.verify(node.state,
+                                             attack_tests=self._attack_tests)
+            ok = adv_result.adversarial_passed
+            violations = adv_result.violations
+            complete = adv_result.evidence_complete
         if not ok:
             rec = self.recovery.record(
                 state_hash=node.state.content_hash,
                 candidate_id=node.candidate_id or "",
                 failure_type=FailureType.ADVERSARIAL_FAILURE,
                 stage="adversarial",
-                evidence="; ".join(adv_result.violations)[:500],
+                evidence="; ".join(violations)[:500],
             )
             self._record_failure(node, rec)
             # M4: this site settles its own verdict — close iff the
-            # re-verification's evidence was complete, else the hash
-            # stays seen (live node in the frontier).
-            if adv_result.evidence_complete:
+            # verdict's evidence was complete, else the hash stays seen
+            # (live node in the frontier).
+            if complete:
                 self.frontier.close(node.state.content_hash)
         return ok
 
