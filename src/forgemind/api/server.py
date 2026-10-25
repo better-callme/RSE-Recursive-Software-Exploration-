@@ -18,6 +18,7 @@ from __future__ import annotations
 import dataclasses
 import ipaddress
 import json
+import logging
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,6 +34,8 @@ from forgemind.recovery.failure import RecoveryPolicy
 from forgemind.search.engine import SearchEngine
 from forgemind.verification.environment import SubprocessExecutionEnvironment
 from forgemind.verification.referee import Referee
+
+logger = logging.getLogger(__name__)
 
 
 def list_problems() -> list[str]:
@@ -313,8 +316,12 @@ class ForgeMindHandler(BaseHTTPRequestHandler):
             self._send(200, handler(body))
         except KeyError as exc:
             self._send(404, {"error": f"unknown problem: {exc}"})
-        except Exception as exc:  # noqa: BLE001 - surfaced to the client
-            self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
+        except Exception:  # noqa: BLE001 - generic client body by design
+            # L5: the client gets nothing internal — no exception class,
+            # no message, no paths. The full traceback goes to the
+            # server log, where debugging belongs.
+            logger.exception("unhandled error in API handler")
+            self._send(500, {"error": "internal error"})
         finally:
             if acquired:
                 semaphore.release()

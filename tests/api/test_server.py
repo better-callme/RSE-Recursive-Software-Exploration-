@@ -121,6 +121,28 @@ def test_invalid_json_is_400(api_base):
         pytest.fail("expected HTTP 400")
 
 
+def test_internal_error_is_generic_but_logged(api_base, monkeypatch, caplog):
+    """L5: both sides of the security boundary. The client gets exactly
+    a generic body (no exception class, no message); the server log
+    gets the full traceback including the marker. Pre-fix the client
+    body contained both 'RuntimeError' and the marker."""
+    import logging
+
+    from forgemind.api.server import _ROUTES
+
+    def _boom(_body):
+        raise RuntimeError("secret-marker")
+
+    monkeypatch.setitem(_ROUTES, ("GET", "/api/health"), (_boom, False))
+    with caplog.at_level(logging.ERROR, logger="forgemind.api.server"):
+        status, payload = _get(api_base, "/api/health")
+    assert status == 500
+    assert payload == {"error": "internal error"}
+    assert "secret-marker" not in json.dumps(payload)
+    assert "RuntimeError" not in json.dumps(payload)
+    assert "secret-marker" in caplog.text
+
+
 def test_serve_wrapper_returns_and_prints(monkeypatch, capsys):
     """L4: the thin serve() wrapper (run_server + warning + print +
     serve_forever + close) was the only untested part of the server
