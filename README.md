@@ -97,6 +97,24 @@ security ∧ regression`). A state at 99/100 tests is still rejected — but its
 pass rate feeds a separate **guidance score** used to rank repair targets.
 Broken code can never be compensated by soft scores.
 
+### Concurrency
+
+Engines are independent across threads, and concurrent API requests are
+safe — because each request builds its own engine (with its own
+environment, frontier, graph, and referee). Concretely:
+
+- IDs are per-run: each `run()` installs a fresh seed-derived allocator
+  (H4), so concurrent runs never interleave ID sequences.
+- Memory peaks are per-child: each verification reaps its own child
+  (H3), so one run's peak never leaks into another's.
+- `History` is thread-safe within an engine (its own lock).
+- The legacy process-global allocator exists only for construction
+  outside a run (tests, direct construction); engine runs never use it.
+
+One engine instance is **not** itself thread-safe: sharing a single
+engine across threads is unsupported. Concurrency safety comes from
+one-engine-per-request, not from locking inside the engine.
+
 ## Installation
 
 ```bash
