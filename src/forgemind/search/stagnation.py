@@ -16,17 +16,28 @@ class StagnationDetector:
     stagnation_count: int = 0
 
     def record(self, *, guidance: float, content_hash: str) -> bool:
-        """Record a transition outcome; returns True when stagnation detected."""
+        """Record a transition outcome; returns True when stagnation detected.
+
+        M6: flat means the whole window stayed within the band — at least
+        max(2, window) samples recorded, and max-min over the effective
+        window <= epsilon. An incomplete window never declares
+        stagnation (window=4 needs four samples; window=1 needs two — a
+        single sample is never flat), and a slow drift (small steps,
+        large span) is progress, not stagnation. History is capped at
+        the effective window so the span is always over exactly the
+        samples the rule evaluates.
+        """
+        need = max(2, self.window)
         self._guidance_history.append(guidance)
         self._hash_history.append(content_hash)
-        if len(self._guidance_history) > self.window + 1:
+        if len(self._guidance_history) > need:
             self._guidance_history.popleft()
         if len(self._hash_history) > 2 * self.window:
             self._hash_history.popleft()
 
         flat = (
-            len(self._guidance_history) >= min(2, self.window)
-            and abs(self._guidance_history[-1] - self._guidance_history[-2]) < self.epsilon
+            len(self._guidance_history) >= need
+            and max(self._guidance_history) - min(self._guidance_history) <= self.epsilon
         )
         oscillating = self._detect_oscillation()
 
@@ -48,5 +59,4 @@ class StagnationDetector:
                 return True
         return False
 
-    def reset_branch(self) -> None:
-        self._guidance_history.clear()
+

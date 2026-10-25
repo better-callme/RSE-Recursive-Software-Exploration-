@@ -112,9 +112,58 @@ def test_beam_empty_frontier_returns_none():
 # ---------------- stagnation ----------------
 
 def test_stagnation_flat_guidance():
+    # M6: a complete window is required — two flat samples are not
+    # stagnation; the third (window=3) is.
     d = StagnationDetector(window=3, epsilon=1e-3)
     assert not d.record(guidance=0.50, content_hash="h1")
-    assert d.record(guidance=0.5001, content_hash="h2")  # delta < epsilon
+    assert not d.record(guidance=0.5001, content_hash="h2")
+    assert d.record(guidance=0.5002, content_hash="h3")
+
+
+def test_stagnation_slow_drift_is_not_flat():
+    # M6 span rule: consecutive deltas below epsilon do not imply
+    # flatness when the whole-window span exceeds epsilon.
+    d = StagnationDetector(window=3, epsilon=1e-3)
+    assert not d.record(guidance=0.50, content_hash="h1")
+    assert not d.record(guidance=0.5006, content_hash="h2")
+    assert not d.record(guidance=0.5012, content_hash="h3")
+
+
+def test_stagnation_slow_drift_within_band_is_flat():
+    # Kashi's cases: [1.00, 1.01, 1.02] with a band wider than the span
+    # is flat; [1.00, 1.03, 1.06] with a tighter band is not.
+    d = StagnationDetector(window=3, epsilon=0.03)
+    assert not d.record(guidance=1.00, content_hash="h1")
+    assert not d.record(guidance=1.01, content_hash="h2")
+    assert d.record(guidance=1.02, content_hash="h3")
+    d = StagnationDetector(window=3, epsilon=0.05)
+    assert not d.record(guidance=1.00, content_hash="h1")
+    assert not d.record(guidance=1.03, content_hash="h2")
+    assert not d.record(guidance=1.06, content_hash="h3")
+
+
+def test_stagnation_span_boundary():
+    # M6 comparison policy is span <= epsilon. Exact-binary values so
+    # the equality case is exact, not float noise.
+    d = StagnationDetector(window=3, epsilon=0.5)
+    assert not d.record(guidance=0.5, content_hash="h1")
+    assert not d.record(guidance=0.75, content_hash="h2")
+    assert d.record(guidance=1.0, content_hash="h3")  # span == epsilon
+    d = StagnationDetector(window=3, epsilon=0.5)
+    assert not d.record(guidance=0.5, content_hash="h1")
+    assert not d.record(guidance=0.75, content_hash="h2")
+    assert not d.record(guidance=1.25, content_hash="h3")  # span > epsilon
+
+
+def test_stagnation_window_one_needs_two_samples():
+    # A single sample can never be "flat", even with window=1; with two
+    # samples the values still matter (span over the pair).
+    d = StagnationDetector(window=1, epsilon=1e-3)
+    assert not d.record(guidance=0.50, content_hash="h1")
+    assert d.record(guidance=0.5001, content_hash="h2")
+    d = StagnationDetector(window=1, epsilon=1e-3)
+    assert not d.record(guidance=0.50, content_hash="h1")
+    assert not d.record(guidance=0.80, content_hash="h2")
 
 
 def test_stagnation_progress_is_not_stagnant():

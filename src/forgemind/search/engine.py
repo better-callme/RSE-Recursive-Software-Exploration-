@@ -115,10 +115,11 @@ class SearchEngine:
         )
         self.strategy = BeamSearchStrategy(self.config.beam_width)
         self.scorer = ScoringPolicy(self.config.scoring_weights)
-        self.detector = StagnationDetector(
-            window=self.config.stagnation_window,
-            epsilon=self.config.stagnation_epsilon,
-        )
+        # M6: one stagnation detector per branch (root-child lineage),
+        # never a single global window — independent branches must not
+        # share a window. Branch keys are tracked in _branch_keys.
+        self._stagnation_detectors: dict[str, StagnationDetector] = {}
+        self._branch_keys: dict[str, str] = {}
         self.metrics = SearchMetrics()
         self._attack_tests: list[AttackTestProposal] = []
         self._critiques: tuple[CritiqueProposal, ...] = ()
@@ -426,6 +427,11 @@ class SearchEngine:
                 if inserted:
                     self.history.append(EventType.NODE_INSERTED, node=child.node_id,
                                         guidance=round(scores.guidance, 6))
+                # M6: the child's branch is its parent's branch, or a new
+                # branch (itself) when the parent is the root, which was
+                # never admitted and so has no key.
+                self._branch_keys[child.node_id] = self._branch_keys.get(
+                    node.node_id, child.node_id)
                 self._check_stagnation(child, scores.guidance)
 
         # No acceptance (that path returns above). If this expansion also
@@ -631,8 +637,19 @@ class SearchEngine:
         return opt_node
 
     def _check_stagnation(self, node: SearchNode, guidance: float) -> None:
-        if self.detector.record(guidance=guidance,
-                                content_hash=node.state.content_hash):
+        # M6: `node` here is the admitted child. Its window belongs to
+        # its branch, not to the run — independent branches never share
+        # a window. Fallback is the child's own node_id (an own branch).
+        branch = self._branch_keys.get(node.node_id, node.node_id)
+        detector = self._stagnation_detectors.get(branch)
+        if detector is None:
+            detector = StagnationDetector(
+                window=self.config.stagnation_window,
+                epsilon=self.config.stagnation_epsilon,
+            )
+            self._stagnation_detectors[branch] = detector
+        if detector.record(guidance=guidance,
+                           content_hash=node.state.content_hash):
             self.metrics.stagnation_events += 1
             self.history.append(EventType.STAGNATION_DETECTED, node=node.node_id)
             rec = self.recovery.record(
@@ -641,19 +658,16 @@ class SearchEngine:
                 evidence="no measurable guidance improvement / oscillation",
             )
             self._record_failure(node, rec)
-            # Recovery for stagnation per policy: terminate the stagnant branch.
-            prunable = [
-                e for e in self.frontier.top_k(len(self.frontier))
-                if e.node_id.rsplit("-", 1)[-1].startswith(
-                    node.node_id.rsplit("-", 1)[-1]) or e.depth > node.depth
-            ]
+            # M6: the response is record + prune weaker candidates
+            # (guidance floor), NOT "terminate the stagnant branch":
+            # the stagnant node itself survives the floor, and branch
+            # termination is a separate search-policy decision.
             for entry in self.frontier.prune_guidance_below(entry_guidance_floor(guidance)):
                 self.metrics.pruned += 1
                 self.history.append(EventType.NODE_PRUNED, node=entry.node_id,
                                     reason="stagnation")
-            self.metrics.backtracks += 1
-            self.history.append(EventType.BACKTRACK, node=node.node_id,
-                                action="prune_branch")
+            # M6: no backtrack here — a prune is not a revisit.
+            # backtracks counts reinsert revisits only.
 
     def _record_failure(self, node: SearchNode, record) -> None:
         self._failure_counts[record.state_hash] = (
