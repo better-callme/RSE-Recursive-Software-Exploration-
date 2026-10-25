@@ -134,6 +134,15 @@ class SuiteResult:
     registry problem id. Because two problems can share a ProblemSpec
     (``stats`` vs ``stats-trap``), each record's ``extra`` carries the
     registry name under ``"suite_problem"``.
+
+    M8 determinism note: the suite is deterministic — the engine's
+    seeded RNG is never consulted, so different seeds produce identical
+    records. There is deliberately no seed-replication parameter: a
+    parameter that doesn't influence execution is not an experimental
+    variable. Replication returns when RSE genuinely has randomized
+    search policies; until then the replication axis is problem
+    diversity, and the primary cost comparison is the deterministic
+    totals in aggregate(), not the wall-clock ratio.
     """
 
     problem_names: tuple[str, ...]
@@ -159,11 +168,20 @@ class SuiteResult:
             })
         return rows
 
-    def aggregate(self) -> Mapping[str, float]:
+    def aggregate(self) -> Mapping[str, Any]:
         fm, base = self.forgemind, self.baseline
         fm_walls = [r.wall_clock_seconds for r in fm.records]
         base_walls = [r.wall_clock_seconds for r in base.records]
         mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
+
+        def total(records: tuple[RunRecord, ...], field: str) -> float:
+            return float(sum(getattr(r, field) for r in records))
+
+        # M8: deterministic cost totals are the primary comparison —
+        # seed- and jitter-independent. The wall-clock ratio is kept as
+        # an environment-sensitive observation, never a pass/fail
+        # criterion; cost_ratio_noisy flags sub-second means, where
+        # scheduler/cache/startup noise dominates.
         return {
             "problems": float(len(self.problem_names)),
             "forgemind_success_rate": fm.success_rate,
@@ -171,6 +189,20 @@ class SuiteResult:
             "delta_success": fm.success_rate - base.success_rate,
             "cost_ratio": (mean(fm_walls) / mean(base_walls)
                            if mean(base_walls) > 0 else float("inf")),
+            "cost_ratio_noisy": bool(mean(fm_walls) < 1.0
+                                     or mean(base_walls) < 1.0),
+            "forgemind_agent_calls": total(fm.records, "agent_calls"),
+            "baseline_agent_calls": total(base.records, "agent_calls"),
+            "forgemind_verifications": total(fm.records, "verifications"),
+            "baseline_verifications": total(base.records, "verifications"),
+            "forgemind_total_tokens": total(fm.records, "token_estimate"),
+            "baseline_total_tokens": total(base.records, "token_estimate"),
+            "forgemind_nodes_created": total(fm.records, "candidates"),
+            "baseline_nodes_created": total(base.records, "candidates"),
+            "forgemind_nodes_explored": total(fm.records, "nodes_explored"),
+            "baseline_nodes_explored": total(base.records, "nodes_explored"),
+            "forgemind_nodes_pruned": total(fm.records, "nodes_pruned"),
+            "baseline_nodes_pruned": total(base.records, "nodes_pruned"),
         }
 
     def to_json_dict(self) -> dict[str, Any]:

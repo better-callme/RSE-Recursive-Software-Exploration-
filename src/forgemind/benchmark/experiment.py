@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from forgemind.agents.mocks import MockBuilder, MockCritic
-from forgemind.benchmark.baseline import run_baseline
+from forgemind.benchmark.baseline import BaselineResult, run_baseline
 from forgemind.benchmark.metrics import (
     BenchmarkResult,
     RunRecord,
@@ -22,6 +22,39 @@ from forgemind.recovery.failure import RecoveryPolicy
 from forgemind.search.engine import SearchEngine
 from forgemind.verification.environment import SubprocessExecutionEnvironment
 from forgemind.verification.referee import Referee
+
+
+def _baseline_record(outcome: BaselineResult, spec: ProblemSpec,
+                     suite_problem: str | None = None) -> RunRecord:
+    """One RunRecord from a baseline outcome (M8: single construction
+    site, so the two arms' records cannot drift apart again). Counts
+    come from the outcome itself — measured, never hardcoded. The
+    baseline builds exactly one candidate at depth 1 and never searches,
+    so candidates/nodes_explored/max_depth are 1 and the search counters
+    are 0 by construction, not by assumption."""
+    pass_rate = 0.0
+    if outcome.node is not None and outcome.node.verification is not None:
+        pass_rate = outcome.node.verification.tests_pass_rate
+    return RunRecord(
+        runner="baseline",
+        problem_id=spec.problem_id,
+        success=outcome.success,
+        accepted=outcome.success,
+        test_pass_rate=pass_rate,
+        wall_clock_seconds=outcome.elapsed_seconds,
+        agent_calls=outcome.agent_calls,
+        verifications=outcome.verifications,
+        candidates=1,
+        nodes_explored=1,
+        nodes_pruned=0,
+        duplicates=0,
+        backtracks=0,
+        stagnation_events=0,
+        max_depth=1,
+        token_estimate=outcome.token_estimate,
+        termination_reason=outcome.termination.reason,
+        extra={"suite_problem": suite_problem} if suite_problem else {},
+    )
 
 
 class ExperimentRunner:
@@ -42,10 +75,18 @@ class ExperimentRunner:
         self,
         problems: Sequence[ProblemSpec],
         builders: Sequence[MockBuilder | None] | None = None,
+        *,
+        builder_factory=None,
     ) -> BenchmarkResult:
+        """Run the ForgeMind arm. When builder_factory is given it is
+        called once per problem and overrides builders, so no builder
+        instance is ever shared across problems or arms (M8)."""
         records: list[RunRecord] = []
         for i, spec in enumerate(problems):
-            builder = builders[i] if builders is not None else None
+            if builder_factory is not None:
+                builder = builder_factory()
+            else:
+                builder = builders[i] if builders is not None else None
             engine = SearchEngine(
                 spec, self.config,
                 referee=self._referee(spec),
@@ -62,34 +103,25 @@ class ExperimentRunner:
         problems: Sequence[ProblemSpec],
         builders: Sequence[MockBuilder | None] | None = None,
         critic: MockCritic | None = None,
+        *,
+        builder_factory=None,
+        critic_factory=None,
     ) -> BenchmarkResult:
+        """Run the baseline arm. builder_factory / critic_factory, when
+        given, are called once per problem and override builders /
+        critic, so no agent instance is ever shared across problems or
+        arms (M8)."""
         records: list[RunRecord] = []
         for i, spec in enumerate(problems):
-            builder = builders[i] if builders is not None else None
+            if builder_factory is not None:
+                builder = builder_factory()
+            else:
+                builder = builders[i] if builders is not None else None
+            if critic_factory is not None:
+                critic = critic_factory()
             outcome = run_baseline(spec, self._referee(spec), self.config,
                                    builder=builder, critic=critic)
-            pass_rate = 0.0
-            if outcome.node is not None and outcome.node.verification is not None:
-                pass_rate = outcome.node.verification.tests_pass_rate
-            records.append(RunRecord(
-                runner="baseline",
-                problem_id=spec.problem_id,
-                success=outcome.success,
-                accepted=outcome.success,
-                test_pass_rate=pass_rate,
-                wall_clock_seconds=outcome.elapsed_seconds,
-                agent_calls=1,
-                verifications=1,
-                candidates=1,
-                nodes_explored=1,
-                nodes_pruned=0,
-                duplicates=0,
-                backtracks=0,
-                stagnation_events=0,
-                max_depth=1,
-                token_estimate=0,
-                termination_reason=outcome.termination.reason,
-            ))
+            records.append(_baseline_record(outcome, spec))
         return BenchmarkResult(records=tuple(records))
 
     def run_suite(self, problem_names: Sequence[str]) -> SuiteResult:
@@ -127,29 +159,7 @@ class ExperimentRunner:
         for name, spec, kit in zip(names, specs, kits):
             outcome = run_baseline(spec, self._referee(spec), self.config,
                                    builder=kit.builder(), critic=kit.critic())
-            pass_rate = 0.0
-            if outcome.node is not None and outcome.node.verification is not None:
-                pass_rate = outcome.node.verification.tests_pass_rate
-            base_records.append(RunRecord(
-                runner="baseline",
-                problem_id=spec.problem_id,
-                success=outcome.success,
-                accepted=outcome.success,
-                test_pass_rate=pass_rate,
-                wall_clock_seconds=outcome.elapsed_seconds,
-                agent_calls=1,
-                verifications=1,
-                candidates=1,
-                nodes_explored=1,
-                nodes_pruned=0,
-                duplicates=0,
-                backtracks=0,
-                stagnation_events=0,
-                max_depth=1,
-                token_estimate=0,
-                termination_reason=outcome.termination.reason,
-                extra={"suite_problem": name},
-            ))
+            base_records.append(_baseline_record(outcome, spec, name))
 
         return SuiteResult(
             problem_names=tuple(names),

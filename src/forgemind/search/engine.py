@@ -35,6 +35,7 @@ from forgemind.core.proposal import (
     _current_allocator,
 )
 from forgemind.core.state import CodebaseState
+from forgemind.core.tokens import estimate_tokens_for_proposals
 from forgemind.core.transition import TransitionEngine
 from forgemind.recovery.failure import (
     FailureRecord,
@@ -509,8 +510,7 @@ class SearchEngine:
                                 kind=type(p).__name__,
                                 agent=getattr(self.builder, "role", "?"),
                                 id=getattr(p, "proposal_id", ""))
-        self.metrics.token_estimate += sum(
-            len(getattr(p, "rationale", "")) // 4 for p in proposals)
+        self.metrics.token_estimate += estimate_tokens_for_proposals(proposals)
         return proposals
 
     # ------------------------------------------------------------------
@@ -728,8 +728,7 @@ class SearchEngine:
             self.history.append(EventType.PROPOSAL_GENERATED,
                                 kind=type(p).__name__, agent=getattr(agent, "role", "?"),
                                 id=getattr(p, "proposal_id", ""))
-        self.metrics.token_estimate += sum(
-            len(getattr(p, "rationale", "")) // 4 for p in proposals)
+        self.metrics.token_estimate += estimate_tokens_for_proposals(proposals)
         return proposals
 
     def _call_agent_pair(self, agent, projection, *, source_node_id: str):

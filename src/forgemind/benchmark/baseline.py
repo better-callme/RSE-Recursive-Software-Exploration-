@@ -9,6 +9,7 @@ from forgemind.agents.mocks import MockBuilder, MockCritic
 from forgemind.agents.projections import build_critic_projection
 from forgemind.core.config import ForgeMindConfig
 from forgemind.core.problem import ProblemSpec
+from forgemind.core.tokens import estimate_tokens_for_proposals
 from forgemind.core.proposal import Candidate, CodePatchProposal
 from forgemind.core.state import CodebaseState
 from forgemind.core.transition import TransitionEngine
@@ -23,6 +24,11 @@ class BaselineResult:
     node: SearchNode | None
     termination: TerminationInfo
     elapsed_seconds: float
+    # M8: measured, not hardcoded — the experiment record reports these
+    # instead of the old 1/1/0 constants.
+    agent_calls: int = 0
+    verifications: int = 0
+    token_estimate: int = 0
 
 
 def run_baseline(
@@ -48,6 +54,11 @@ def run_baseline(
         _minimal_builder_projection(spec, root_state),
         {"source_node_id": root.node_id},
     )
+    # M8: count what actually happened. The builder ran (1 agent call)
+    # and generated proposals (token estimate over ALL of them, matching
+    # the engine's rule — not just the one taken below).
+    agent_calls = 1
+    token_estimate = estimate_tokens_for_proposals(proposals)
     # Baseline takes exactly ONE proposal (variant 0) — no branching/backtracking.
     proposal: CodePatchProposal = next(
         p for p in proposals if isinstance(p, CodePatchProposal))
@@ -55,7 +66,9 @@ def run_baseline(
     tresult = TransitionEngine(spec).apply(root_state, proposal)
     if not tresult.ok:
         return BaselineResult(False, None, TerminationInfo("fatal", detail=tresult.reason),
-                              time.monotonic() - started)
+                              time.monotonic() - started,
+                              agent_calls=agent_calls, verifications=0,
+                              token_estimate=token_estimate)
     state = tresult.new_state
     assert state is not None
     node = SearchNode(
@@ -64,6 +77,7 @@ def run_baseline(
         depth=1, creation_index=1,
     )
     verification = referee.verify(state)
+    verifications = 1
     gate = hard_gate(verification)
     success = gate.passed
     termination_reason = "goal_accepted" if gate.passed else "single_shot_failed"
@@ -72,9 +86,13 @@ def run_baseline(
     # is attributable to search, not to a different verification bar.
     if gate.passed and config.enable_adversarial_tier:
         proj = build_critic_projection(spec, state, verification)
-        _, attacks = critic.propose(proj, {"source_node_id": root.node_id})
+        critiques, attacks = critic.propose(proj, {"source_node_id": root.node_id})
+        agent_calls += 1  # the critic ran, whether or not it found attacks
+        token_estimate += (estimate_tokens_for_proposals(critiques)
+                           + estimate_tokens_for_proposals(attacks))
         if attacks:
             adv = referee.verify(state, attack_tests=attacks)
+            verifications += 1
             success = adv.adversarial_passed
             if not success:
                 termination_reason = "adversarial_failed"
@@ -87,6 +105,9 @@ def run_baseline(
         node=node,
         termination=TerminationInfo(termination_reason),
         elapsed_seconds=time.monotonic() - started,
+        agent_calls=agent_calls,
+        verifications=verifications,
+        token_estimate=token_estimate,
     )
 
 

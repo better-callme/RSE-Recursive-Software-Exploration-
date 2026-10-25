@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--beam-width", type=int, default=3)
     run_p.add_argument("--max-depth", type=int, default=6)
 
-    bench_p = sub.add_parser("benchmark", help="compare ForgeMind vs baseline")
+    bench_p = sub.add_parser("benchmark", help="compare ForgeMind vs baseline (deterministic suite)")
     bench_p.add_argument("--problem", choices=["all"] + problem_choices,
                          default="all",
                          help="one problem id, or 'all' for the full suite")
@@ -118,7 +118,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"forgemind success rate : {agg['forgemind_success_rate']:.2f}")
         print(f"baseline success rate  : {agg['baseline_success_rate']:.2f}")
         print(f"delta success          : {agg['delta_success']:+.2f}")
-        print(f"cost ratio (fm/base)   : {agg['cost_ratio']:.2f}x")
+        # M8: deterministic totals are the primary cost comparison;
+        # the wall ratio is environment-sensitive, not pass/fail.
+        print(f"fm verifications       : {agg['forgemind_verifications']:.0f} / base {agg['baseline_verifications']:.0f}")
+        print(f"fm agent calls         : {agg['forgemind_agent_calls']:.0f} / base {agg['baseline_agent_calls']:.0f}")
+        print(f"fm tokens (est)        : {agg['forgemind_total_tokens']:.0f} / base {agg['baseline_total_tokens']:.0f}")
+        print(f"observed wall ratio    : {agg['cost_ratio']:.2f}x (environment-sensitive)")
+        if agg["cost_ratio_noisy"]:
+            print("note: sub-second runs — wall ratio is noise-dominated, not a pass/fail criterion")
         out = runner.save_suite_report(suite, args.output)
         print(f"report written to      : {out}")
         return 0
