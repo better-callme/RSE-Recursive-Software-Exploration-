@@ -23,6 +23,18 @@ class TransitionResult:
 _FORBIDDEN_SPEC_PATHS = ("problem_spec.json", ".forgemind/spec.json")
 
 
+def _is_forbidden_spec_path(path: str) -> bool:
+    """L2: exact match or trailing components only — never substring.
+
+    `my_problem_spec.json` and `problem_spec.json.bak` are innocent
+    files, not the spec; the old `p in path` clause rejected them.
+    `problem_spec.json/evil.py` (forbidden name as a directory) is a
+    different key in the flat file map, not a spec modification.
+    """
+    return any(path == p or path.endswith("/" + p)
+               for p in _FORBIDDEN_SPEC_PATHS)
+
+
 def _check_python_syntax(path: str, content: str) -> str | None:
     """Return an error message or None."""
     if not path.endswith(".py"):
@@ -87,8 +99,7 @@ class TransitionEngine:
 
         for raw_path in patch.deleted_files:
             path = normalize_path(raw_path)
-            if any(path == p or path.endswith("/" + p) or p in path
-                   for p in _FORBIDDEN_SPEC_PATHS):
+            if _is_forbidden_spec_path(path):
                 return TransitionResult(
                     False, None, f"cannot delete protected file {path}",
                     "PROBLEM_SPEC_MUTATION")
@@ -105,8 +116,7 @@ class TransitionEngine:
                 if not path:
                     return TransitionResult(False, None, "empty file path",
                                             "INVALID_PATH")
-                if any(path == p or path.endswith("/" + p) or p in path
-                       for p in _FORBIDDEN_SPEC_PATHS):
+                if _is_forbidden_spec_path(path):
                     return TransitionResult(
                         False, None,
                         f"attempt to modify problem specification via {path}",

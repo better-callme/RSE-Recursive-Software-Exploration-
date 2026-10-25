@@ -52,6 +52,27 @@ def test_problem_spec_mutation_rejected(engine):
     assert not r.ok and r.violation == "PROBLEM_SPEC_MUTATION"
 
 
+def test_innocent_spec_like_names_allowed_l2(engine):
+    # L2: the old substring clause rejected these; exact/suffix matching
+    # allows them. The GOOD solution file matters: without it the patch
+    # fails the interface constraint regardless, which would hide the
+    # policy under test (the old dependency-test trap).
+    for innocent in ("my_problem_spec.json", "docs/problem_spec.json.bak"):
+        root = make_root_state(engine.spec)
+        r = engine.apply(root, CodePatchProposal(
+            created_files={"solution.py": GOOD, innocent: "pass"}))
+        assert r.ok, (innocent, r.violation)
+
+
+def test_nested_spec_path_still_forbidden_l2(engine):
+    for forbidden in ("sub/problem_spec.json", ".forgemind/spec.json",
+                      "x/.forgemind/spec.json"):
+        root = make_root_state(engine.spec)
+        r = engine.apply(root, CodePatchProposal(
+            created_files={"solution.py": GOOD, forbidden: "{}"}))
+        assert not r.ok and r.violation == "PROBLEM_SPEC_MUTATION"
+
+
 def test_syntax_error_rejected_at_transition(engine):
     root = make_root_state(engine.spec)
     r = engine.apply(root, CodePatchProposal(created_files={"solution.py": BAD_SYNTAX}))
