@@ -12,7 +12,19 @@ from forgemind.core.identity import (
 
 
 def _frozen_str_map(mapping: Mapping[str, str]) -> Mapping[str, str]:
-    return MappingProxyType({normalize_path(k): v for k, v in mapping.items()})
+    # L3: normalization is intended, but two distinct raw keys collapsing
+    # to one normalized key used to overwrite silently (last wins).
+    # That is data loss, so it is a construction error, not a merge.
+    seen: dict[str, str] = {}
+    out: dict[str, str] = {}
+    for raw, value in mapping.items():
+        path = normalize_path(raw)
+        if path in seen and seen[path] != raw:
+            raise ValueError(
+                f"multiple paths normalize to {path}")
+        seen[path] = raw
+        out[path] = value
+    return MappingProxyType(out)
 
 
 class CodebaseState:

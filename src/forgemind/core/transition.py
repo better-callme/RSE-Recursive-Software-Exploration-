@@ -111,11 +111,22 @@ class TransitionEngine:
 
         for mapping, target in ((patch.created_files, created),
                                 (patch.modified_files, modified)):
+            # L3: two distinct raw spellings of one normalized path in a
+            # single mapping used to overwrite silently (last wins).
+            # The message names only the canonical path, so it cannot
+            # depend on which spelling was encountered first.
+            seen: dict[str, str] = {}
             for raw_path, content in mapping.items():
                 path = normalize_path(raw_path)
                 if not path:
                     return TransitionResult(False, None, "empty file path",
                                             "INVALID_PATH")
+                if path in seen:
+                    return TransitionResult(
+                        False, None,
+                        f"multiple paths normalize to {path}",
+                        "INVALID_PATH")
+                seen[path] = raw_path
                 if _is_forbidden_spec_path(path):
                     return TransitionResult(
                         False, None,

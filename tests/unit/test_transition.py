@@ -64,6 +64,32 @@ def test_innocent_spec_like_names_allowed_l2(engine):
         assert r.ok, (innocent, r.violation)
 
 
+def test_normalized_collision_rejected_l3(engine):
+    # L3: two spellings, one canonical path — the second value used to
+    # overwrite the first silently. The GOOD content keeps the interface
+    # constraint satisfied so the collision is the deciding rejection.
+    root = make_root_state(engine.spec)
+    r = engine.apply(root, CodePatchProposal(
+        created_files={"solution.py": GOOD, "./solution.py": GOOD}))
+    assert not r.ok and r.violation == "INVALID_PATH"
+
+
+def test_single_noncanonical_spelling_ok_l3(engine):
+    # Guard: normalization itself is intended — one spelling alone works.
+    root = make_root_state(engine.spec)
+    r = engine.apply(root, CodePatchProposal(
+        created_files={"./solution.py": GOOD}))
+    assert r.ok
+
+
+def test_state_construction_collision_rejected_l3(engine):
+    # L3: CodebaseState was the second silent last-wins entry point.
+    from forgemind.core.state import CodebaseState
+    with pytest.raises(ValueError):
+        CodebaseState(spec_hash=engine.spec.spec_hash,
+                      files={"a//b.py": "x", "a/b.py": "y"})
+
+
 def test_nested_spec_path_still_forbidden_l2(engine):
     for forbidden in ("sub/problem_spec.json", ".forgemind/spec.json",
                       "x/.forgemind/spec.json"):
