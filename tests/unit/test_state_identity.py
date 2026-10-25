@@ -60,6 +60,23 @@ def test_hash_includes_spec():
     assert a.content_hash != b.content_hash
 
 
+def test_content_hash_cannot_be_supplied():
+    """M9: the public constructor takes no content_hash — a hash
+    callers could choose would not commit to the state. Pre-fix this
+    construction is silently accepted."""
+    with pytest.raises(TypeError):
+        CodebaseState(spec_hash=SPEC, files={"a.py": "x = 1"},
+                      content_hash="0" * 64)
+
+
+def test_different_content_states_are_not_equal():
+    """M9 guard: with computed-only hashes, equality follows content."""
+    a = CodebaseState(spec_hash=SPEC, files={"a.py": "1"})
+    b = CodebaseState(spec_hash=SPEC, files={"a.py": "2"})
+    assert a != b
+    assert hash(a) != hash(b)
+
+
 def test_normalize_path():
     assert normalize_path("./a//b/../c") == "a/c"
     assert normalize_path("a/b/") == "a/b"

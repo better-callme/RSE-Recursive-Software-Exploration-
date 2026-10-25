@@ -21,6 +21,11 @@ class CodebaseState:
     Genuinely immutable: mappings are wrapped in MappingProxyType and any
     attribute mutation raises AttributeError. New states are created only via
     TransitionEngine.
+
+    M9: the content hash is always computed from the content — never
+    caller-supplied. A hash callers could choose would not be a
+    commitment to the state, and M4's seen/closed reasoning (plus
+    __eq__/__hash__) depends on the hash identifying the content.
     """
 
     __slots__ = ("_files", "_dependencies", "_runtime_spec", "_configuration",
@@ -34,7 +39,6 @@ class CodebaseState:
         dependencies: Mapping[str, str] | None = None,
         runtime_spec: str = "python3",
         configuration: Mapping[str, str] | None = None,
-        content_hash: str | None = None,
     ) -> None:
         object.__setattr__(self, "_spec_hash", spec_hash)
         object.__setattr__(self, "_files", _frozen_str_map(files))
@@ -43,7 +47,9 @@ class CodebaseState:
         object.__setattr__(self, "_dependencies", _frozen_str_map(deps))
         object.__setattr__(self, "_configuration", _frozen_str_map(config))
         object.__setattr__(self, "_runtime_spec", runtime_spec)
-        chash = content_hash or state_content_hash(
+        # M9: no content_hash parameter — the hash is computed, never
+        # accepted from the caller.
+        chash = state_content_hash(
             spec_hash=spec_hash,
             files=self._files,
             dependencies=self._dependencies,
