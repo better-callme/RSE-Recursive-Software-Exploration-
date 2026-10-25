@@ -1,4 +1,6 @@
-"""Shared fixtures: stats problem + referee with in-memory env."""
+"""Shared fixtures: stats problem + referee with the real subprocess
+environment (L4: the old 'in-memory env' claim was stale — L1 deleted
+that environment, and the fixture always built the subprocess one)."""
 
 from __future__ import annotations
 

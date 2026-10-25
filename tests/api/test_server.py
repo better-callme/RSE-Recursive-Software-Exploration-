@@ -119,3 +119,19 @@ def test_invalid_json_is_400(api_base):
         assert exc.code == 400
     else:
         pytest.fail("expected HTTP 400")
+
+
+def test_serve_wrapper_returns_and_prints(monkeypatch, capsys):
+    """L4: the thin serve() wrapper (run_server + warning + print +
+    serve_forever + close) was the only untested part of the server
+    bootstrap — run_server itself is live-tested above. serve_forever
+    is monkeypatched to a no-op so this never blocks, binds, or races
+    on a port."""
+    from http.server import ThreadingHTTPServer
+
+    from forgemind.api.server import serve
+    monkeypatch.setattr(ThreadingHTTPServer, "serve_forever",
+                        lambda self: None)
+    serve(host="127.0.0.1", port=0)
+    out = capsys.readouterr().out
+    assert "ForgeMind API listening on http://127.0.0.1:" in out

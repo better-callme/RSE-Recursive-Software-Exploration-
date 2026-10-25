@@ -1,6 +1,4 @@
-"""§47 backtracking, §48 duplicate convergence, benchmark harness tests."""
-
-import pytest
+"""Backtracking, duplicate convergence, benchmark harness tests."""
 
 from forgemind.agents.mocks import MockBuilder
 from forgemind.benchmark.experiment import ExperimentRunner
@@ -18,21 +16,30 @@ GOOD_X = (
 )
 
 
-def test_backtracking_via_real_frontier(spec, referee):
-    """Force the first accepted-path candidate to fail so search must return
-    to the frontier and pick a different branch (not a retry counter)."""
-    config = ForgeMindConfig(max_verifications=60)
-    runner = ExperimentRunner(config)
+def test_recovery_via_later_branch(spec, referee):
+    """L4 rewrite of test_backtracking_via_real_frontier, which hid
+    behind xfail: it passed whenever the run succeeded (asserting only
+    nodes_explored >= 1) and xfailed instead of failing when the run
+    failed — proving nothing in either branch, with a docstring
+    claiming a forced first-candidate failure the code never staged.
+    This version stages it for real with a wrong-first builder: the
+    first variant fails acceptance and leaves a TEST_FAILURE record,
+    search continues past it, and a later variant succeeds. No xfail:
+    it fails loudly if recovery regresses."""
+    from forgemind.agents.mocks import MockBuilder
+    from forgemind.recovery.failure import FailureType, RecoveryPolicy
     from forgemind.search.engine import SearchEngine
-    from forgemind.recovery.failure import RecoveryPolicy
-    engine = SearchEngine(spec, config, referee=referee,
-                          recovery=RecoveryPolicy())
+    config = ForgeMindConfig(max_verifications=60)
+    engine = SearchEngine(spec, config,
+                          builder=MockBuilder(correct_first=False),
+                          referee=referee, recovery=RecoveryPolicy())
     result = engine.run()
-    # The frontier must have been drained across branches (real exploration).
-    assert result.metrics.nodes_explored >= 1
-    if not result.success:
-        pytest.xfail("branch ordering accepted first candidate; "
-                     "backtrack path covered by frontier unit tests")
+    assert result.success
+    # Search did not stop at the first candidate.
+    assert result.metrics.candidates_created >= 2
+    # The wrong variant failed and was recorded, not silently skipped.
+    assert any(r.failure_type == FailureType.TEST_FAILURE
+               for r in engine._all_records)
 
 
 def test_duplicate_convergence_pruned(spec, referee):

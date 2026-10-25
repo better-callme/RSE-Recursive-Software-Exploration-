@@ -46,7 +46,7 @@ def test_full_search_accepts_verified_candidate(spec, referee):
 
 
 def test_multiple_candidates_generated_and_separate_states(spec):
-    """§46: builder emits A/B/C; all three become candidates with distinct states."""
+    """Builder emits A/B/C; all three become candidates with distinct states."""
     engine = make_engine(spec, make_referee(spec))
     # Inspect pre-search: run one expansion manually by running full search but
     # asserting on candidate count from proposals the builder generates.

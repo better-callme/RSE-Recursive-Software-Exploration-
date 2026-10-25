@@ -1,6 +1,6 @@
 """SearchEngine: the deterministic loop that integrates everything.
 
-Agents propose; this engine alone decides. See spec §57.
+Agents propose; this engine alone decides.
 """
 
 from __future__ import annotations
