@@ -32,6 +32,17 @@ def test_attack_test_requires_name_and_code():
         AttackTestProposal(agent_role="critic", test_name="", test_code="pass")
 
 
+def test_candidate_proposal_required_m10():
+    # M10: the old proposal default factory built a no-file patch that
+    # CodePatchProposal.__post_init__ rejects, so this raised ValueError
+    # from inside the factory. Now the missing field is a TypeError at
+    # the call site.
+    with pytest.raises(TypeError):
+        Candidate(parent_node_id="root")
+    with pytest.raises(TypeError):
+        Candidate()
+
+
 def test_candidate_requires_parent():
     patch = CodePatchProposal(created_files={"a.py": "x"})
     with pytest.raises(ValueError):

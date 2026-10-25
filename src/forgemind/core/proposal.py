@@ -160,13 +160,20 @@ Proposal = (
 
 @dataclass(frozen=True)
 class Candidate:
-    """Bind(parent node, proposal). Not automatically valid."""
+    """Bind(parent node, proposal). Not automatically valid.
 
+    M10: `proposal` is required and comes first. It previously had a
+    default factory building a no-file CodePatchProposal, which its own
+    __post_init__ rejects — so Candidate(parent_node_id="root") raised
+    ValueError from inside the factory. A required field fails loudly
+    at the call site (TypeError) instead. Field order matters:
+    non-default fields must precede defaulted ones, and all callers
+    construct by keyword, so the reorder is behavior-neutral.
+    """
+
+    proposal: Proposal
     candidate_id: str = field(default_factory=lambda: _next_id("cand"))
     parent_node_id: str = ""
-    proposal: Proposal = field(default_factory=lambda: CodePatchProposal(
-        proposal_id=_next_id("prop"), agent_role="none",
-    ))
     estimated_cost: float = 0.0
     generation_index: int = 0
 
