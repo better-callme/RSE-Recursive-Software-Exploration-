@@ -39,20 +39,6 @@ class StaticGateResult:
 
 
 @dataclass(frozen=True)
-class TestReport:
-    """Parsed result of one test run."""
-
-    total: int
-    passed: int
-    failed: int
-    details: tuple[str, ...] = ()  # failing test ids / messages
-
-    @property
-    def pass_rate(self) -> float:
-        return self.passed / self.total if self.total else 0.0
-
-
-@dataclass(frozen=True)
 class VerificationResult:
     """Structured evidence produced only by the Referee."""
 

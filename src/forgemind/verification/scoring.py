@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 
 from forgemind.core.config import ScoringWeights
 from forgemind.verification.results import ComponentScores, HardGateResult, VerificationResult
@@ -64,14 +63,4 @@ class ScoringPolicy:
             total=total,
         )
 
-    @staticmethod
-    def _runtime_score(runtime_ms: float) -> float:
-        if runtime_ms <= 0:
-            return 0.5
-        return math.exp(-runtime_ms / 5000.0)
 
-    @staticmethod
-    def _memory_score(peak_mb: float) -> float:
-        if peak_mb <= 0:
-            return 0.5
-        return math.exp(-peak_mb / 512.0)

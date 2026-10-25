@@ -103,9 +103,6 @@ class MockBuilder:
             f"            'max': max(data), 'mean': total // n}}\n"  # truncates
         )
 
-    def _syntax_broken(self, fn: str) -> str:
-        return f"def {fn}(data:\n    return {{}}\n"
-
     def _place(self, src: str, target_files: Mapping[str, str]
                ) -> tuple[dict[str, str], dict[str, str]]:
         """Create vs modify (H5): a file that already exists in the state

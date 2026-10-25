@@ -20,9 +20,6 @@ class NodeStatus(str, Enum):
     # M5: hard gate passed, final acceptance not yet established.
     # ACCEPTED is terminal: the run's final winner only.
     GATE_PASSED = "GATE_PASSED"
-    EXHAUSTED = "EXHAUSTED"
-    CYCLE_DEAD_END = "CYCLE_DEAD_END"
-    STAGNATED = "STAGNATED"
     QUARANTINED = "QUARANTINED"
 
 
@@ -219,11 +216,6 @@ class SearchFrontier:
         )
         self.prune_to_capacity()
         return True
-
-    def select(self) -> FrontierEntry | None:
-        """Deterministically pick the best entry without removing it."""
-        entries = sorted(self._entries.values(), key=FrontierEntry.sort_key)
-        return entries[0] if entries else None
 
     def peek_best(self) -> FrontierEntry | None:
         entries = sorted(self._entries.values(), key=FrontierEntry.sort_key)

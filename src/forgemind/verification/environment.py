@@ -244,26 +244,4 @@ class SubprocessExecutionEnvironment:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-class InMemoryExecutionEnvironment:
-    """Test-only environment executing a fixed canned result per command tag.
 
-    Used by unit tests to keep the Referee backend-agnostic; never used for
-    real candidate verification.
-    """
-
-    def __init__(self, results_by_tag: dict[str, ExecutionResult]) -> None:
-        self._results = results_by_tag
-        self.calls: list[tuple[str, tuple[str, ...]]] = []
-
-    def execute(
-        self,
-        workdir: str,
-        command: Sequence[str],
-        limits: ResourceLimits | None = None,
-    ) -> ExecutionResult:
-        self.calls.append((workdir, tuple(command)))
-        for tag, result in self._results.items():
-            if any(tag in part for part in command):
-                return result
-        return ExecutionResult(exit_code=1, stdout="", stderr="no canned result",
-                               timed_out=False, runtime_ms=0.0)

@@ -46,14 +46,6 @@ def _next_id(prefix: str) -> str:
 
 
 @dataclass(frozen=True)
-class FileEdit:
-    """A single file operation proposed by an agent."""
-
-    path: str
-    content: str | None  # None for deletion
-
-
-@dataclass(frozen=True)
 class ProposalBase:
     """Shared immutable proposal metadata. Subclass via composition helpers;
     kept as a dataclass base for field reuse."""
@@ -189,7 +181,7 @@ def _raise_frozen_proposal(self: object, name: str, value: object) -> None:
     )
 
 
-for _cls in (FileEdit, ProposalBase, ArchitectureProposal, CodePatchProposal,
+for _cls in (ProposalBase, ArchitectureProposal, CodePatchProposal,
              CritiqueProposal, AttackTestProposal, OptimizationProposal,
              Candidate):
     _cls.__setattr__ = _raise_frozen_proposal  # type: ignore[method-assign]

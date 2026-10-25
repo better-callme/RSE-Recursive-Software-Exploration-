@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import re
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -33,9 +32,6 @@ def _check_python_syntax(path: str, content: str) -> str | None:
     except SyntaxError as exc:
         return f"{path}: syntax error line {exc.lineno}: {exc.msg}"
     return None
-
-
-_INTERFACE_RE = re.compile(r"^def\s+(\w+)\s*\(")
 
 
 def _public_symbols(path: str, content: str) -> set[str]:

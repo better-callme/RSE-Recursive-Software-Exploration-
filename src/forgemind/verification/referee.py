@@ -96,13 +96,6 @@ _HARNESS_TEMPLATE = textwrap.dedent(
 
 
 @dataclass(frozen=True)
-class TieredRun:
-    acceptance: dict[str, int]
-    adversarial: dict[str, int]
-    regression: dict[str, int]
-
-
-@dataclass(frozen=True)
 class _TierOutcome:
     """One tier's isolated result (M3). Internal to the referee."""
     name: str

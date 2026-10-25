@@ -285,7 +285,6 @@ class SearchEngine:
 
         inserted_any = False
         best_child_guidance = 0.0
-        surviving: list[tuple[Candidate, CodebaseState]] = []
         for gen_index, proposal in enumerate(patch_proposals[
                 : self.config.branching_factor]):
             candidate = Candidate(
@@ -798,6 +797,3 @@ class SearchResult:
         ]
         return "\n".join(lines)
 
-
-# Engine-attached mutable session fields (explicit, not hidden globals).
-SearchEngine.__init__.__defaults__  # keep linters calm
