@@ -1,6 +1,6 @@
-# ForgeMind v0.1 — Deterministic Search Foundation
+# RSE v0.1 — Deterministic Search Foundation
 
-ForgeMind is an experimental framework for testing whether structured search
+RSE is an experimental framework for testing whether structured search
 and deterministic verification improve software-generation reliability.
 
 It treats software generation as **constrained state-space exploration**:
@@ -8,6 +8,28 @@ probabilistic agents (LLMs or deterministic mocks) *propose* moves; a
 deterministic engine *decides* — validating proposals, transforming immutable
 states, hashing content, deduplicating, executing sandboxed verification,
 scoring results, pruning, backtracking, and accepting.
+
+## Recent updates
+
+- **Oct 2026 — Full audit complete.** Every CRITICAL, HIGH, MEDIUM, and LOW
+  finding fixed and pushed, plus a 32-test adversarial integrity suite and the
+  spec-mutation (F1) fix.
+- **2026-10-26 — Greedy Trap (Experiment 1).** With identical proposals,
+  verification, and ranking, RSE reaches a solution greedy cannot: greedy
+  commits to a dead end and dies; RSE backtracks through the frontier and
+  accepts. 7 nodes, 11 candidates, 9 verifications.
+- **2026-10-30 — Experiment 2B frozen COMPLETE.** Genuine state convergence
+  exists: two different edit histories reaching the same code state were found
+  in the canonical run (1 convergence point); the append control and offline
+  normalization replay found none, so convergence is real, not formatting.
+- **2026-10-30 — Real-repository benchmark harness built.** dbader/schedule
+  at a verified bug (operator precedence in `_compute_next_run`) with a
+  verified trap fix; three arms (single-shot, greedy, RSE) under locked
+  variables. Live runs are paused while a reachable, funded LLM provider is
+  sorted out.
+- **2026-11-05 — Providers.** OpenRouter key expired; You.com connected as a
+  third provider but unfunded (the account holds no credits). No live model
+  work until a provider is funded and reachable.
 
 ## Central architectural law
 
@@ -32,7 +54,7 @@ Compare:
 - **Baseline**: one deterministic proposal, verified once (including the
   same Tier-3 adversarial tests the engine faces, so "success" means the
   same thing in both arms).
-- **ForgeMind**: bounded beam search over multiple genuine alternatives with
+- **RSE**: bounded beam search over multiple genuine alternatives with
   failure-driven recovery, duplicate pruning, stagnation detection, and
   adversarial (critic-generated) test tiers.
 
@@ -53,7 +75,7 @@ mean wall-clock cost ratio into one report.
 
 `stats-trap` is the discriminating case: the same `stats-v1` spec, but the
 mock builder emits wrong variants first (truncated mean, then broken
-empty-list handling). The baseline takes variant 0 and fails; ForgeMind
+empty-list handling). The baseline takes variant 0 and fails; RSE
 must recover through search. With deterministic mocks there is no other
 source of variation, so the trap is what makes the comparison informative.
 Both arms face identical verification tiers — the measured delta is
@@ -118,7 +140,7 @@ one-engine-per-request, not from locking inside the engine.
 ## Installation
 
 ```bash
-cd forgemind
+cd RSE-Recursive-Software-Exploration-
 pip install -e ".[dev]"     # Python 3.12+, stdlib-only runtime deps
 ```
 
@@ -159,7 +181,7 @@ is fully explainable after the fact.
 
 ## HTTP API
 
-ForgeMind also ships a stdlib-only HTTP API (no third-party runtime
+RSE also ships a stdlib-only HTTP API (no third-party runtime
 dependencies):
 
 ```bash
@@ -170,9 +192,9 @@ python -m forgemind serve --port 8000
 |--------|-----------------|------------------------------------------------|
 | GET    | /api/health     | `{"status": "ok", "version": ...}`             |
 | GET    | /api/problems   | list of registered problem ids                 |
-| POST   | /api/run        | run ForgeMind search, return metrics + summary |
+| POST   | /api/run        | run RSE search, return metrics + summary |
 | POST   | /api/trace      | run search, return the full event trace         |
-| POST   | /api/benchmark  | baseline vs ForgeMind suite comparison     |
+| POST   | /api/benchmark  | baseline vs RSE suite comparison     |
 
 POST bodies are JSON: `/api/run` and `/api/trace` take `{"problem":
 "stats", "seed": 0, "beam_width": 3, "max_depth": 6}`; `/api/benchmark`
@@ -225,8 +247,9 @@ Known platform notes observed during development:
 
 ## MVP limitations
 
-- Mock agents are deterministic stand-ins; no live LLM integration yet (by
-  design — the Agent protocol accepts adapters without engine changes).
+- Mock agents are deterministic stand-ins for the bundled problems. A live
+  LLM adapter exists as a test-only harness (see LLM integration below), not
+  yet wired into the shipped CLI.
 - Scoring excludes measured runtime/memory from ranking (OS jitter breaks
   determinism); they're recorded as raw evidence. Weights live in config.
 - Optimizer's "maintainability" component is a neutral placeholder.
@@ -234,9 +257,15 @@ Known platform notes observed during development:
 - Two bundled benchmark problems (`stats`, `stats-trap`); the engine is
   problem-agnostic.
 
-## Future LLM integration
+## LLM integration (in progress)
 
-Implement the `Agent` protocol (`propose(projection, ctx) -> tuple[Proposal, ...]`)
-with prompt serialization + structured-output parsing. The engine, frontier,
-referee, and scoring require zero changes — that is the architectural test for
-the deterministic/probabilistic boundary.
+The `Agent` protocol already has an LLM adapter (`LLMBuilder`, test-only in
+`tests/integration/test_llm_convergence.py`): it speaks OpenAI-compatible
+chat completions, requests structured JSON output, and plugs into the engine
+with zero production changes — that is the architectural test for the
+deterministic/probabilistic boundary. Live experiments have run against it
+(Experiment 2B is frozen as COMPLETE; a real-repository benchmark harness
+is built), but live model compatibility is still the open problem: the
+models tried so far failed provider-side or account-side, not in the
+adapter. Current status (2026-11-05): OpenRouter key expired, You.com
+connected but unfunded. A funded, reachable provider comes first.
