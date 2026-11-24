@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Mapping, Protocol
@@ -301,6 +302,99 @@ class BeamSearchStrategy:
         nodes = []
         for entry in beam:
             frontier.remove(entry.node_id)
+            nodes.append(graph.get(entry.node_id))
+        return tuple(nodes)
+
+
+class UCTSearchStrategy:
+    """UCB1 frontier selection over the shallowest level (opt-in).
+
+    Same level discipline as BeamSearchStrategy — a round selects only
+    from the SHALLOWEST depth present in the frontier, up to
+    beam_width nodes — so the selection rule is the single variable
+    under test. WITHIN that level, nodes are ordered by UCB1 instead
+    of raw guidance:
+
+        ucb = guidance + c * sqrt(ln(total + 1) / (visits + 1))
+
+    where guidance is the FrontierEntry guidance in [0, 1], c is the
+    exploration constant, visits counts how often this instance has
+    selected the node, and total counts all selections this instance
+    has made. Visit counts are owned by the instance (fresh per engine
+    run); there is no global state, no randomness, and no wall-clock,
+    so selection is fully deterministic. Ties break on (-ucb, depth,
+    creation_index, node_id).
+    """
+
+    def __init__(
+        self,
+        beam_width: int = 3,
+        exploration: float = math.sqrt(2),
+    ) -> None:
+        self.beam_width = max(1, beam_width)
+        self.exploration = exploration
+        self._visits: dict[str, int] = {}
+        self._total_selections = 0
+
+    @property
+    def total_selections(self) -> int:
+        return self._total_selections
+
+    def visits(self, node_id: str) -> int:
+        return self._visits.get(node_id, 0)
+
+    def _ucb(self, entry: FrontierEntry) -> float:
+        visits = self._visits.get(entry.node_id, 0)
+        return entry.guidance + self.exploration * math.sqrt(
+            math.log(self._total_selections + 1) / (visits + 1))
+
+    def _ucb_key(self, entry: FrontierEntry) -> tuple[float, int, int, str]:
+        return (-self._ucb(entry), entry.depth, entry.creation_index,
+                entry.node_id)
+
+    def _shallowest(self, entries: tuple[FrontierEntry, ...]) -> list[FrontierEntry]:
+        """The shallowest level present, ordered by UCB1 (ties broken
+        deterministically). UCB values are all computed against the
+        counter as it stands before this round's selections."""
+        min_depth = min(e.depth for e in entries)
+        return sorted(
+            (e for e in entries if e.depth == min_depth),
+            key=self._ucb_key,
+        )
+
+    def _record(self, entry: FrontierEntry) -> None:
+        self._visits[entry.node_id] = self._visits.get(entry.node_id, 0) + 1
+        self._total_selections += 1
+
+    def select_next(
+        self,
+        frontier: SearchFrontier,
+        graph: SearchGraph,
+    ) -> SearchNode | None:
+        """Best-UCB node at the shallowest depth present (level
+        discipline, same as a beam round of width 1)."""
+        entries = frontier.top_k(len(frontier))
+        if not entries:
+            return None
+        best = self._shallowest(entries)[0]
+        frontier.remove(best.node_id)
+        self._record(best)
+        return graph.get(best.node_id)
+
+    def select_beam(
+        self,
+        frontier: SearchFrontier,
+        graph: SearchGraph,
+    ) -> tuple[SearchNode, ...]:
+        """Remove and return one UCB1 round (see class docstring)."""
+        entries = frontier.top_k(len(frontier))
+        if not entries:
+            return ()
+        beam = self._shallowest(entries)[: self.beam_width]
+        nodes = []
+        for entry in beam:
+            frontier.remove(entry.node_id)
+            self._record(entry)
             nodes.append(graph.get(entry.node_id))
         return tuple(nodes)
 

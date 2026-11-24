@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 from dataclasses import dataclass, field, fields
 from types import MappingProxyType
 from typing import Mapping
@@ -69,6 +70,19 @@ class ForgeMindConfig:
 
     logging_verbose: bool = False
 
+    # Frontier strategy (opt-in experiment switch; default is the
+    # level-synchronous beam, which is also the control arm).
+    frontier_strategy: str = "beam"
+    # UCB1 exploration constant for the "uct" strategy (sqrt(2)).
+    uct_exploration: float = math.sqrt(2)
+
+    # Guidance mode (opt-in experiment switch; default is the raw
+    # acceptance pass rate). "bayesian" replaces the correctness term
+    # with the Beta posterior mean over the exact acceptance counts.
+    guidance_mode: str = "pass_rate"
+    bayesian_prior_alpha: float = 1.0
+    bayesian_prior_beta: float = 1.0
+
     def __post_init__(self) -> None:
         if self.beam_width < 1:
             raise ValueError("beam_width must be >= 1")
@@ -76,6 +90,14 @@ class ForgeMindConfig:
             raise ValueError("branching_factor must be >= 1")
         if self.max_depth < 1:
             raise ValueError("max_depth must be >= 1")
+        if self.frontier_strategy not in ("beam", "uct"):
+            raise ValueError("frontier_strategy must be 'beam' or 'uct'")
+        if self.uct_exploration <= 0:
+            raise ValueError("uct_exploration must be > 0")
+        if self.guidance_mode not in ("pass_rate", "bayesian"):
+            raise ValueError("guidance_mode must be 'pass_rate' or 'bayesian'")
+        if self.bayesian_prior_alpha <= 0 or self.bayesian_prior_beta <= 0:
+            raise ValueError("bayesian priors must be > 0")
 
     def as_dict(self) -> Mapping[str, object]:
         """Deterministic serialization of the full configuration."""

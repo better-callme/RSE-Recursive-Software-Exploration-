@@ -8,8 +8,30 @@ from forgemind.verification.results import ComponentScores, HardGateResult, Veri
 
 
 class ScoringPolicy:
-    def __init__(self, weights: ScoringWeights) -> None:
+    """Guidance scoring. `guidance_mode` is an opt-in experiment
+    switch (default "pass_rate"): in "bayesian" mode the correctness
+    term is the Beta posterior mean over the EXACT acceptance counts,
+    (alpha0 + passes) / (alpha0 + beta0 + total), instead of the raw
+    pass rate. Priors default to Beta(1, 1) (uniform) and must be > 0.
+    Everything else in the formula — weights, penalty, total — is
+    identical in both modes."""
+
+    def __init__(
+        self,
+        weights: ScoringWeights,
+        *,
+        guidance_mode: str = "pass_rate",
+        bayesian_prior_alpha: float = 1.0,
+        bayesian_prior_beta: float = 1.0,
+    ) -> None:
+        if guidance_mode not in ("pass_rate", "bayesian"):
+            raise ValueError("guidance_mode must be 'pass_rate' or 'bayesian'")
+        if bayesian_prior_alpha <= 0 or bayesian_prior_beta <= 0:
+            raise ValueError("bayesian priors must be > 0")
         self._w = weights
+        self._guidance_mode = guidance_mode
+        self._prior_alpha = bayesian_prior_alpha
+        self._prior_beta = bayesian_prior_beta
 
     def score(
         self,
@@ -24,7 +46,19 @@ class ScoringPolicy:
         # M3: correctness is the ACCEPTANCE rate. Adversarial outcomes
         # answer "can we break it?", not "how correct is it?" — they
         # have their own gate and must not dilute correctness.
-        correctness = verification.acceptance_pass_rate
+        if self._guidance_mode == "bayesian":
+            # Beta posterior mean: prior Beta(alpha0, beta0) updated by
+            # (acceptance_passes, acceptance_total - passes). With no
+            # tests this is the prior mean alpha0 / (alpha0 + beta0).
+            # ComponentScores.correctness records this posterior mean,
+            # not the raw pass rate, while the mode is active.
+            correctness = (
+                (self._prior_alpha + verification.acceptance_passes)
+                / (self._prior_alpha + self._prior_beta
+                   + verification.acceptance_total)
+            )
+        else:
+            correctness = verification.acceptance_pass_rate
         # Deterministic soft components: measured wall-time/memory vary run to
         # run (OS jitter), so they are excluded from scoring in v0.1 and
         # recorded as raw evidence only. Neutral 0.5 keeps weights stable.

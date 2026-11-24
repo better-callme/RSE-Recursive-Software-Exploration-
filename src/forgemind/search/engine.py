@@ -49,6 +49,7 @@ from forgemind.search.node import (
     SearchFrontier,
     SearchGraph,
     SearchNode,
+    UCTSearchStrategy,
 )
 from forgemind.search.stagnation import StagnationDetector
 from forgemind.verification.referee import Referee, hard_gate
@@ -114,8 +115,20 @@ class SearchEngine:
             capacity=max(self.config.max_nodes, 8),
             beam_width=self.config.beam_width,
         )
-        self.strategy = BeamSearchStrategy(self.config.beam_width)
-        self.scorer = ScoringPolicy(self.config.scoring_weights)
+        # Frontier strategy is an opt-in experiment switch; "beam" is
+        # the default and the control arm.
+        if self.config.frontier_strategy == "uct":
+            self.strategy = UCTSearchStrategy(
+                self.config.beam_width,
+                exploration=self.config.uct_exploration)
+        else:
+            self.strategy = BeamSearchStrategy(self.config.beam_width)
+        self.scorer = ScoringPolicy(
+            self.config.scoring_weights,
+            guidance_mode=self.config.guidance_mode,
+            bayesian_prior_alpha=self.config.bayesian_prior_alpha,
+            bayesian_prior_beta=self.config.bayesian_prior_beta,
+        )
         # M6: one stagnation detector per branch (root-child lineage),
         # never a single global window — independent branches must not
         # share a window. Branch keys are tracked in _branch_keys.
